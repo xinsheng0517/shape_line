@@ -1,0 +1,108 @@
+// End-to-end grid tests: production must run through real ports and belts.
+const fs = require('fs');
+const vm = require('vm');
+const path = require('path');
+const assert = require('assert');
+const files = ['levels.js', 'blueprint.js', 'trapezoid.js', 'challenges.js', 'challenge-v2.js', 'core.js', 'sim.js', 'input.js'];
+assert(files.every(f => fs.existsSync(path.join(__dirname, 'js', f))), 'v2 runtime and domain modules must exist');
+const el = () => ({style:{},classList:{add(){},remove(){},toggle(){}},appendChild(){},addEventListener(){},querySelector:()=>el(),textContent:'',innerHTML:''});
+const context = {console, performance, setTimeout:()=>0, clearTimeout(){}, setInterval(){}, window:{addEventListener(){}}, document:{getElementById:()=>el(),createElement:()=>el()}, localStorage:{getItem:()=>null,setItem(){}}, assert};
+vm.createContext(context);
+vm.runInContext(files.map(f=>fs.readFileSync(path.join(__dirname,'js',f),'utf8')).join('\n') + `
+const Render = {cv:null,resize(){},drawPreview(){}};
+UI.els={tabs:document.createElement(),lvlName:document.createElement(),toolbar:document.createElement(),hint:document.createElement(),bpbar:document.createElement(),toast:document.createElement()};
+function setup(index) {
+  loadChallenge(index);
+  V2Runtime.installReference();
+  G.v2.running=true;
+}
+for (const index of [0,1,4,5]) {
+  setup(index);
+  const expected=G.chalDef.need, ids=V2Runtime.materialIds();
+  assert.equal(ids.length,expected*4);
+  for(let n=0;n<3000&&!G.won;n++) {
+    Sim.tick();
+    assert.deepEqual(V2Runtime.materialIds().slice().sort(),ids.slice().sort(),'material conserved every tick');
+  }
+  assert(G.won,G.chalDef.id+' reference must finish');
+  assert.equal(G.delivered,expected);
+  assert(G.v2.orders.every(o=>o.delivered===o.need));
+  assert.equal(G.chalDef.stars(G),3);
+  assert(G.save.challengeV2[G.chalDef.id]);
+  assert(!G.save.challenges[G.chalDef.id],'legacy score untouched');
+  console.log(G.chalDef.id+' V2 PASS, tick '+G.tickCount+', belts '+G.used.belt);
+}
+setup(0);
+const ids=V2Runtime.materialIds().slice().sort();
+const last=G.v2.def.guide.find(c=>c.type==='merger'&&c.machineMode==='final');
+const blocked=G.grid[last.y][last.x]; blocked.dir=0;
+for(let n=0;n<300;n++) Sim.tick();
+assert(!G.won,'blocked outlet must stall');
+assert.deepEqual(V2Runtime.materialIds().slice().sort(),ids);
+blocked.dir=last.dir;
+for(let n=0;n<1500&&!G.won;n++) Sim.tick();
+assert(G.won,'unblock must recover');
+setup(4);
+const rotor=G.v2.def.guide.find(c=>c.type==='rotator');
+G.grid[rotor.y][rotor.x].type='belt';
+for(let n=0;n<400;n++) Sim.tick();
+assert(!G.won,'C5 cannot skip rotation');
+setup(0);
+for(let n=0;n<16;n++) Sim.tick();
+const occupied=G.grid.flat().find(c=>c&&V2Runtime.occupied(c)&&MACHINE_TYPES.includes(c.type));
+assert(occupied);
+const before=V2Runtime.materialIds().slice().sort();
+Input.removeAt(occupied.x,occupied.y);
+assert.equal(G.grid[occupied.y][occupied.x],null,'occupied machine can be deleted');
+assert.deepEqual(V2Runtime.materialIds().slice().sort(),before,'its material is accounted for');
+loadLevel(0); assert.equal(G.v2,null);
+loadFree(); assert.equal(G.v2,null);
+loadChallenge(2); assert.equal(G.v2,null);
+loadDaily(); assert.equal(G.v2,null);
+loadChallenge(0);
+for(let n=0;n<30;n++) Sim.tick();
+assert.equal(G.v2.emitted,0,'build mode must not spend finite inventory');
+assert.equal(G.tickCount,0);
+setup(0); G.paused=true;
+Sim.tick(); assert.equal(G.tickCount,0,'pause must freeze v2 simulation'); G.paused=false;
+for(let n=0;n<40;n++) Sim.tick();
+const layoutBefore=G.grid.flat().filter(c=>c&&MACHINE_TYPES.includes(c.type)).map(c=>[c.x,c.y,c.type,c.dir,c.machineMode]);
+V2Runtime.resetMaterial();
+assert.equal(G.v2.initial.length,2); assert.equal(G.v2.reserve.length,1); assert.equal(G.delivered,0);
+assert.equal(new Set(V2Runtime.materialIds()).size,12);
+assert.deepEqual(G.grid.flat().filter(c=>c&&MACHINE_TYPES.includes(c.type)).map(c=>[c.x,c.y,c.type,c.dir,c.machineMode]),layoutBefore);
+G.v2.running=true;
+for(let n=0;n<1000&&!G.won;n++) Sim.tick(); assert(G.won,'reset preserves a playable layout');
+loadChallenge(1);
+Input.tryPlace(5,5,'cutter',1,true,'fine');
+assert(Undo.undo()); assert(!cellAt(5,5)); assert(Undo.redoOp()); assert.equal(cellAt(5,5).machineMode,'fine');
+G.paste=Blueprints.fromRegion(5,5,5,5,'fine'); Input.pasteAt(6,5);
+assert.equal(cellAt(6,5).machineMode,'fine','paste preserves machine mode');
+assert(Undo.undo()); assert(Undo.redoOp()); assert.equal(cellAt(6,5).machineMode,'fine');
+const oldPos=Input.pos; Input.pos=()=>({x:5,y:5}); G.paste=null; G.hover={x:-1,y:-1};
+Input._down({button:0}); Input.pos=oldPos;
+assert.equal(G.hover.x,5,'touch selection exposes the selected machine inspector');
+G.tool='belt'; Input.tryPlace(7,5,'belt',1,true);
+Input.pos=()=>({x:7,y:5}); Input._down({button:0}); Input.pos=oldPos;
+assert(Input.drag,'starting on an existing belt must allow drag extension'); Input._up();
+const hub=cellAt(22,7);
+assert.equal(V2Runtime.accepts(hub,21,7,{shape:Trapezoid.preview('F_AB')}),null,'preview cannot be delivered');
+loadChallenge(0); G.tool=null; G.hover={x:5,y:7};
+const lockedDir=cellAt(5,7).dir;
+Input.key({key:'r'});
+assert.equal(cellAt(5,7).dir,lockedDir,'fixed tutorial machine cannot rotate');
+loadChallenge(0); G.v2.running=true;
+const rawBelt=mkCell('belt',21,7,1);
+rawBelt.item=V2Runtime.item(Trapezoid.raw('AB','invalid-hub'),rawBelt);
+G.grid[7][21]=rawBelt;
+Sim.tick(); Sim.tick();
+assert.match(rawBelt.status,/工序|配方|原坯/,'hub rejection must explain product problem');
+loadChallenge(5); G.v2.running=true;
+function half(pair,id){const q=Trapezoid.rough(Trapezoid.raw(pair,id)).flatMap(h=>Trapezoid.fine(h));return Trapezoid.merge(q[0],q[2],G.v2.def.halfRecipes,G.v2.def.finalRecipes);}
+const ordered=mkCell('merger',5,5,1);ordered.machineMode='final';
+ordered.queueA=[{shape:half('AB','new-ab'),moveTick:20},{shape:half('CD','new-cd'),moveTick:20}];
+ordered.queueB=[{shape:half('AB','old-ab'),moveTick:10},{shape:half('CD','old-cd'),moveTick:10}];
+G.grid[5][5]=ordered; V2Runtime.machines();
+assert(ordered.proc.shape.units.every(u=>u.sourceId.startsWith('old-')),'merger chooses oldest valid pair across inputs');
+console.log('ALL_V2_RUNTIME_TESTS_PASS');
+`, context);

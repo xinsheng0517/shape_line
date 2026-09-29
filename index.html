@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>形状流水线 · Shape Line</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏭</text></svg>">
+<style>
+  :root{
+    --bg:#0b0e15; --glass:rgba(20,24,36,.72); --panel:#1a1e2a; --line:#2a3042;
+    --txt:#dbe2f1; --dim:#8a93a8; --acc:#f2a93b;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  #v2-controls{align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px;}
+  #v2-controls select{background:#202b3d;color:var(--txt);border:1px solid #4a6078;border-radius:5px;padding:4px;}
+  #v2-stock{color:#a7c6df;white-space:nowrap;}
+  #v2-orders{display:flex;gap:8px;align-items:center;}
+  .v2-order{display:flex;align-items:center;gap:3px;background:#121c2b;border:1px solid #3c506b;border-radius:6px;padding-right:8px;}
+  .v2-order canvas{width:34px;height:32px;}
+  html, body{ height:100%; overflow:hidden; }
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:"Segoe UI", system-ui, "Microsoft YaHei", sans-serif;
+  }
+
+  /* ===== 画布：占满整个视口（D15 全屏化） ===== */
+  #game{
+    position:fixed; left:0; top:0; display:block; z-index:0;
+    cursor:crosshair; touch-action:none; /* 触屏操作不触发页面滚动/缩放 */
+  }
+
+  /* ===== 顶部浮层 HUD（≤48px，半透明毛玻璃） ===== */
+  #topbar{
+    position:fixed; top:0; left:0; right:0; height:48px; z-index:10;
+    display:flex; align-items:center; gap:8px; padding:6px 12px;
+    background:var(--glass); border-bottom:1px solid var(--line);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+  #tabs-viewport{ position:relative; flex:0 1 260px; width:min(260px,34vw); min-width:0; height:34px; }
+  #tabs{ display:flex; align-items:center; gap:4px; width:100%; height:100%; overflow-x:auto; overflow-y:hidden;
+    touch-action:pan-x; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
+    scrollbar-width:thin; scrollbar-color:var(--acc) transparent; }
+  #tabs::-webkit-scrollbar{ height:4px; }
+  #tabs::-webkit-scrollbar-thumb{ background:var(--acc); border-radius:4px; }
+  #tabs::-webkit-scrollbar-track{ background:transparent; }
+  #tabs-viewport.scrollable #tabs{ cursor:grab; }
+  #tabs.dragging{ cursor:grabbing; user-select:none; }
+  #tabs-viewport::before, #tabs-viewport::after{
+    content:""; position:absolute; top:0; bottom:4px; width:17px; z-index:1;
+    pointer-events:none; opacity:0; transition:opacity .15s;
+  }
+  #tabs-viewport::before{ left:0; background:linear-gradient(90deg,rgba(242,169,59,.45),transparent); }
+  #tabs-viewport::after{ right:0; background:linear-gradient(270deg,rgba(242,169,59,.45),transparent); }
+  #tabs-viewport.can-left::before, #tabs-viewport.can-right::after{ opacity:1; }
+  .tab{
+    min-width:27px; height:27px; border-radius:6px; cursor:pointer; flex:none;
+    border:1px solid var(--line); background:transparent; color:var(--txt);
+    font-size:12px; line-height:1;
+  }
+  .tab.cur{ border-color:var(--acc); color:var(--acc); }
+  .tab.lock{ opacity:.3; cursor:not-allowed; }
+  .tab .st{ display:block; font-size:8px; color:var(--acc); height:8px; }
+  #lvl-name{
+    font-size:13px; font-weight:600; white-space:nowrap;
+    max-width:220px; overflow:hidden; text-overflow:ellipsis;
+  }
+  #target-box{ display:flex; align-items:center; gap:6px; flex:none; }
+  #target-info{ display:flex; flex-direction:column; line-height:1.15; }
+  #target-label{ font-size:11px; color:var(--dim); }
+  #target-cond{ font-size:11px; color:var(--acc); white-space:nowrap; }
+  #target-canvas{ width:34px; height:34px; background:#141824; border:1px solid var(--line); border-radius:8px; }
+  .spacer{ flex:1; }
+  .hbtn{
+    background:transparent; border:1px solid var(--line); border-radius:6px;
+    color:var(--txt); padding:5px 9px; cursor:pointer; font-size:12px;
+    white-space:nowrap; flex:none;
+  }
+  .hbtn:hover{ border-color:var(--acc); }
+  #stat-rate{ font-size:12px; color:var(--dim); white-space:nowrap; flex:none; }
+  #c4-timer{ color:var(--acc); font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; flex:none; }
+  #c4-start.supply-attention{
+    color:#17120a; background:#ffd166; border:2px solid #fff0b3; font-weight:800;
+    box-shadow:0 0 0 2px rgba(255,209,102,.28),0 0 16px rgba(255,209,102,.68);
+    animation:c4-supply-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes c4-supply-pulse{
+    50%{ box-shadow:0 0 0 4px rgba(255,209,102,.44),0 0 24px rgba(255,209,102,.9); }
+  }
+  @media (prefers-reduced-motion:reduce){ #c4-start.supply-attention{ animation:none; } }
+  @media (max-width:720px){
+    #topbar.c4-mode #target-box,
+    #topbar.c4-mode #btn-hint, #topbar.c4-mode #btn-sound{ display:none!important; }
+    #topbar.c4-mode{ gap:4px; padding-inline:5px; }
+    #topbar.c4-mode .hbtn{ padding-inline:5px; }
+    #topbar.c4-mode #c4-timer{ font-size:12px; }
+  }
+
+  /* ===== 底部工具托盘（≤56px，可收起） ===== */
+  #tray{
+    position:fixed; left:0; right:0; bottom:0; height:56px; z-index:10;
+    display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background:var(--glass); border-top:1px solid var(--line);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+  #tray.min{ height:24px; padding:0 10px; gap:0; }
+  #tray.min > *:not(#tray-toggle){ display:none; }
+  #tray-toggle{
+    flex:none; width:26px; height:40px; border-radius:6px; cursor:pointer;
+    border:1px solid var(--line); background:transparent; color:var(--dim); font-size:13px;
+  }
+  #tray-toggle:hover{ border-color:var(--acc); color:var(--acc); }
+  #tray.min #tray-toggle{ height:20px; width:100%; border:none; font-size:11px; }
+  #toolbar{ display:flex; gap:6px; flex:none; }
+  #sidebar{ display:flex; gap:6px; flex:none; }
+  .tool{
+    flex:none; width:56px; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; color:var(--txt); padding:5px 2px 4px; cursor:pointer;
+    text-align:center; position:relative; user-select:none;
+  }
+  .tool:hover{ border-color:var(--acc); }
+  .tool.sel{ border-color:var(--acc); background:#262c3f; }
+  .tool.off{ opacity:.35; cursor:not-allowed; }
+  .tool .g{ font-size:19px; display:block; height:22px; }
+  .tool .n{ font-size:11px; color:var(--dim); display:block; }
+  .tool.sel .n{ color:var(--txt); }
+  .tool .b{ position:absolute; top:1px; right:6px; font-size:11px; color:var(--acc); }
+  .tool .k{ position:absolute; top:1px; left:6px; font-size:10px; color:var(--dim); }
+  #sidebar .tool{ width:38px; }
+  #sidebar .tool .n{ display:none; } /* 动作键只显图标，tooltip 见 title */
+  #sidebar .tool.act .g{ font-size:17px; }
+  #hint{
+    flex:1; min-width:0; text-align:center; font-size:12px; color:var(--dim);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 6px;
+  }
+  #help{ flex:none; font-size:11px; color:var(--dim); white-space:nowrap; }
+  @media (max-width:1180px){ #help{ display:none; } }
+
+  /* ===== 可收起的蓝图库抽屉，覆盖在画布侧边，不挤压网格 ===== */
+  #bpbar{
+    position:fixed; right:8px; top:56px; bottom:64px; z-index:9;
+    display:none; flex-direction:column; gap:6px; align-items:stretch; padding:10px;
+    width:min(270px,82vw); background:var(--glass); border:1px solid var(--line); border-radius:10px;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    overflow-y:auto; scrollbar-width:thin;
+  }
+  #bpbar .bplabel{ font-size:12px; color:var(--dim); }
+  #bpbar .drawer-actions{ display:flex; flex-wrap:wrap; gap:5px; }
+  #bpbar .drawer-actions .hbtn{ flex:1 0 auto; }
+  .bp{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    color:var(--txt); padding:5px 8px; cursor:pointer; font-size:12px;
+    display:flex; align-items:center; gap:6px; user-select:none; flex:none;
+  }
+  .bp .sz{margin-left:auto;}
+  .bp:hover{ border-color:var(--acc); }
+  .bp .sz{ color:var(--dim); font-size:10px; }
+  .bp .op{ color:var(--dim); cursor:pointer; padding:0 2px; }
+  .bp .op:hover{ color:var(--acc); }
+
+  /* ===== 提示气泡 / 弹窗 ===== */
+  #toast{
+    position:fixed; left:50%; bottom:130px; transform:translateX(-50%);
+    background:rgba(0,0,0,.82); border:1px solid var(--line);
+    padding:8px 16px; border-radius:6px; font-size:13px;
+    opacity:0; transition:opacity .2s; pointer-events:none; max-width:80%; z-index:30;
+  }
+  #modal{
+    position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:20;
+    display:none; align-items:center; justify-content:center;
+    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:28px 44px; text-align:center;
+    max-width:94vw; max-height:92vh; overflow-y:auto;
+  }
+  .card h2{ margin-bottom:6px; }
+  .stars{ font-size:36px; color:var(--acc); letter-spacing:6px; margin:8px 0; }
+  #win-info{ color:var(--dim); font-size:13px; margin-bottom:14px; }
+  .btn{
+    background:var(--acc); border:none; color:#1a1305;
+    padding:8px 18px; border-radius:6px; cursor:pointer; font-size:14px; margin:4px;
+  }
+  .btn.ghost{ background:transparent; border:1px solid var(--line); color:var(--txt); }
+  #menu{
+    position:fixed; inset:0; background:rgba(10,12,20,.78); z-index:15;
+    display:none; align-items:center; justify-content:center;
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  }
+  #menu .modes{ display:flex; gap:14px; margin-top:14px; flex-wrap:wrap; justify-content:center; }
+  #menu .mode{
+    flex:1 1 180px; max-width:250px; min-width:150px;
+    background:#141824; border:1px solid var(--line);
+    border-radius:10px; padding:18px 14px; cursor:pointer; text-align:left;
+    transition:border-color .15s;
+  }
+  #menu .mode:hover{ border-color:var(--acc); }
+  #menu .mode b{ display:block; margin-bottom:8px; color:var(--acc); font-size:15px; }
+  #menu .mode p{ font-size:12px; color:var(--dim); line-height:1.6; }
+  #menu .tip{ margin-top:16px; font-size:12px; color:var(--dim); }
+  #ach-list{ margin-top:14px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center; max-width:640px; }
+  .ach{
+    font-size:12px; color:var(--dim); border:1px solid var(--line);
+    border-radius:12px; padding:3px 10px; user-select:none;
+  }
+  .ach.got{ color:var(--acc); border-color:var(--acc); }
+
+  /* ===== 小屏横屏布局：保留所有主要按钮，工具栏可在自身范围内横向滑动 ===== */
+  @media (max-width:800px) {
+    #topbar{ padding:4px 6px; gap:5px; }
+    .hbtn{ padding:3px 6px; font-size:11px; }
+    #lvl-name, #stat-rate{ display:none; }
+    #btn-hint, #btn-sound{ font-size:0; }
+    #btn-hint::after{ content:"?"; font-size:13px; }
+    #btn-sound::after{ content:"♪"; font-size:13px; }
+    #tabs .tab{ min-width:22px; height:22px; font-size:10px; }
+    #target-box canvas{ width:26px; height:26px; }
+    #target-label{ display:none; }
+    #target-cond{ font-size:10px; }
+    #tray{ height:46px; gap:4px; padding:4px 6px; overflow-x:auto; overflow-y:hidden;
+      touch-action:pan-x; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+    #tray.v2-mode:not(.min){ max-height:36vh; overflow-y:auto; }
+    #toolbar, #sidebar{ gap:4px; }
+    .tool{ width:38px; padding:4px 0 3px; }
+    .tool .n{ display:none; }
+    .tool .g{ font-size:16px; height:18px; }
+    .tool .k{ display:none; }
+    #sidebar .tool{ width:32px; }
+    #hint{ display:none; }
+    #bpbar{ top:86px; bottom:50px; right:4px; padding:8px; }
+    #toast{ bottom:100px; }
+  }
+  #tray.v2-mode:not(.min){height:auto;flex-wrap:wrap;justify-content:center;gap:6px;}
+  #tray.v2-mode #v2-controls{flex:0 0 100%;order:-1;min-width:0;}
+  #tray.v2-mode #hint{flex-basis:100%;}
+  #tray.v2-mode #help{display:none;}
+  #tray.v2-mode.min #v2-controls{display:none!important;}
+  @media (max-width:800px){
+    #tray.v2-mode .tool{width:36px;padding:3px 0;}
+    #tray.v2-mode .tool .n,#tray.v2-mode .tool .k{display:none;}
+    #tray.v2-mode #sidebar .tool{width:28px;}
+    #tray.v2-mode #hint{display:none;}
+    #v2-controls{gap:4px;padding:3px;font-size:11px;}
+    #v2-controls .hbtn{font-size:11px;padding:4px 6px;}
+  }
+  @media (max-width:1440px){
+    #topbar.has-tabs{ height:82px; align-items:flex-start; padding-bottom:36px; }
+    #topbar.has-tabs #tabs-viewport{
+      position:absolute; left:10px; right:10px; bottom:4px;
+      width:auto; max-width:none; height:32px;
+    }
+  }
+  @media (orientation:portrait) and (max-width:720px){
+    #topbar.has-tabs{ height:72px; padding-bottom:31px; }
+    #topbar.has-tabs #tabs-viewport{ left:6px; right:6px; bottom:3px; height:27px; }
+    #bpbar{ top:76px; }
+  }
+  #landscape-gate[hidden]{ display:none; }
+  #landscape-gate{
+    position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    padding:20px; background:#0b0e15; color:var(--txt); text-align:center;
+  }
+  #landscape-card{ width:min(360px,100%); padding:24px; border:1px solid var(--line);
+    border-radius:14px; background:var(--panel); box-shadow:0 12px 42px rgba(0,0,0,.45); }
+  #landscape-card .turn-icon{ display:block; font-size:42px; color:var(--acc); margin-bottom:8px; }
+  #landscape-card h2{ font-size:22px; margin-bottom:10px; }
+  #landscape-card p{ font-size:14px; line-height:1.6; color:var(--dim); margin-bottom:16px; }
+  #landscape-action{ background:var(--acc); border:0; border-radius:7px; padding:10px 18px;
+    color:#1a1305; font-size:15px; font-weight:700; cursor:pointer; }
+</style>
+</head>
+<body>
+<canvas id="game" width="768" height="512"></canvas>
+<header id="topbar">
+  <button class="hbtn" id="btn-menu">☰ 菜单</button>
+  <div id="tabs-viewport"><div id="tabs"></div></div>
+  <div id="lvl-name">形状流水线</div>
+  <div id="target-box"><canvas id="target-canvas" width="48" height="48"></canvas><div id="target-info"><span id="target-label">目标</span><span id="target-cond"></span></div></div>
+  <span id="c4-timer" role="timer" aria-live="off" style="display:none"></span>
+  <button class="hbtn" id="c4-start" style="display:none">▶ 启动供料</button>
+  <div class="spacer"></div>
+  <span id="stat-rate">0 件/分</span>
+  <button class="hbtn" id="btn-speed">1x</button>
+  <button class="hbtn" id="btn-hint">提示</button>
+  <button class="hbtn" id="btn-next-target" style="display:none">换一个</button>
+  <button class="hbtn" id="btn-pause">暂停</button>
+  <button class="hbtn" id="btn-restart">重开</button>
+  <button class="hbtn" id="btn-sound">♪ 音效</button>
+</header>
+<div id="tray">
+  <button id="tray-toggle" title="收起 / 展开工具栏">▾</button>
+  <div id="toolbar"></div>
+  <div id="sidebar"></div>
+  <div id="hint"></div>
+  <div id="help">左键放置 · 拖拽连铺 · 右键拖拆 · R 旋转 · M 镜像 · B 框选 · Ctrl+V 粘贴 · S 存蓝图 · ↶↷ 撤销重做 · , . 调速 · 空格暂停</div>
+</div>
+<div id="bpbar"></div>
+<input id="bp-import-file" type="file" accept=".json,.slbp.json,application/json" style="display:none">
+<div id="toast"></div>
+<div id="landscape-gate" role="dialog" aria-modal="true" aria-labelledby="landscape-title" hidden>
+  <div id="landscape-card">
+    <span class="turn-icon" aria-hidden="true">↻</span>
+    <h2 id="landscape-title">请横屏游玩</h2>
+    <p>旋转手机即可继续。也可尝试全屏横屏显示；若浏览器不支持方向锁定，请手动旋转设备。</p>
+    <button id="landscape-action" type="button">尝试横屏全屏</button>
+  </div>
+</div>
+<div id="menu">
+  <div class="card">
+    <h2>形状流水线</h2>
+    <div class="modes">
+      <div class="mode" id="mode-tutorial"><b>教程模式</b><p>8 关学会一切：采集、切割、旋转、合并。首次游玩推荐从这里开始。</p></div>
+      <div class="mode" id="mode-free"><b>自由模式</b><p>32×20 大图，随机目标，不限预算，随意搭建产线。</p></div>
+      <div class="mode" id="mode-challenge"><b>挑战模式</b><p>梯形双切与重组、旋转调度、预算与吞吐，六关试炼冲击三星。</p></div>
+      <div class="mode" id="mode-daily"><b>每日挑战</b><p>当日同题：随机目标 + 预算系数，180 秒限时，本地记最佳。</p></div>
+    </div>
+    <div id="ach-list"></div>
+    <div class="tip">点击模式进入 · 游戏中按 Esc 或 ☰ 菜单返回此处</div>
+  </div>
+</div>
+<div id="modal">
+  <div class="card">
+    <h2>过关！</h2>
+    <div class="stars" id="win-stars">★★★</div>
+    <div id="win-info"></div>
+    <button class="btn" id="btn-next">下一关</button>
+    <button class="btn ghost" id="btn-replay">重玩本关</button>
+    <button class="btn ghost" id="btn-close">返回</button>
+  </div>
+</div>
+<script src="js/levels.js"></script>
+<script src="js/blueprint.js"></script>
+<script src="js/petal-v3.js"></script>
+<script src="js/challenges.js"></script>
+<script src="js/challenge-v3.js"></script>
+<script src="js/core.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/render.js"></script>
+<script src="js/input.js"></script>
+</body>
+</html>

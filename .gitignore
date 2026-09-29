@@ -1,0 +1,23 @@
+# 依赖
+node_modules/
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+yarn-error.log*
+*.tmp
+
+# 环境变量
+.env
+.env.local

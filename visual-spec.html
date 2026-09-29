@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>梯形材料 · 视觉规范与状态样张</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:32px;background:#101725;color:#e2e9f7;font:15px system-ui,'Microsoft YaHei',sans-serif}main{max-width:1100px;margin:auto}h1{font-size:28px;margin:0 0 8px}h2{font-size:18px;margin-top:28px}p{color:#aebcd1;line-height:1.7}.row{display:flex;flex-wrap:wrap;gap:12px}.card{width:144px;background:#1a2436;border:1px solid #364761;border-radius:12px;padding:10px;text-align:center}.card canvas{display:block;width:120px;height:108px}.name{font-size:13px}.note{color:#9cadc6;font-size:12px;margin-top:5px}.badge{padding:8px 14px;border:1px solid #455b77;border-radius:8px}a{color:#8dc4ff}button{background:#243851;color:#e2e9f7;padding:7px 12px;border:1px solid #6782a3;border-radius:6px;cursor:pointer}.grayscale main{filter:grayscale(1)}
+</style></head><body><main>
+<h1>梯形材料 · 视觉状态样张</h1><p>与游戏共用 Canvas 绘制代码。所有横切按面积均分；压合后重新定型，质量保持不变。<a href="index.html">返回游戏</a></p>
+<button id="gray">切换灰度检查</button>
+<h2>材料识别</h2><div class="row"><span class="badge">A 蓝晶／斜线</span><span class="badge">B 铜矿／点阵</span><span class="badge">C 紫晶／横线</span><span class="badge">D 青玉／网格</span></div>
+<h2>完整原坯 → 粗切 → 精切</h2><div class="row" id="cuts"></div>
+<h2>混合半成品与全新完整成品</h2><div class="row" id="pressed"></div>
+<h2>四种材料的独立分片</h2><div class="row" id="materials"></div>
+<h2>小网格显示检查</h2><p>下列图标按游戏中各网格的相同比例绘制；小尺寸以轮廓与色块识别，选中机器后提供放大查看。</p><div class="row" id="sizes"></div>
+</main><script src="js/trapezoid.js"></script><script src="js/render.js"></script><script>
+function card(parent,shape,name,note,r=34){const div=document.createElement('div');div.className='card';const c=document.createElement('canvas');c.width=240;c.height=216;const ctx=c.getContext('2d');ctx.scale(2,2);Render.shapeIcon(ctx,shape,60,51,r);div.appendChild(c);const label=document.createElement('div');label.className='name';label.textContent=name;div.appendChild(label);const n=document.createElement('div');n.className='note';n.textContent=note;div.appendChild(n);document.getElementById(parent).appendChild(div);}
+const raw=Trapezoid.raw('AB','visual'),halves=Trapezoid.rough(raw),quarters=halves.flatMap(h=>Trapezoid.fine(h));
+card('cuts',raw,'复合原坯 AABB','质量 1 / 灰色外框');halves.forEach((s,i)=>card('cuts',s,i?'B 纯资源半坯':'A 纯资源半坯','质量 1/2'));
+quarters.forEach((s,i)=>card('cuts',s,s.units[0].resource+' 分片 '+(i+1),'质量 1/4'));
+for(const id of ['H_AB','H_AC','H_CD','F_AB','F_AC','F_ABCD'])card('pressed',Trapezoid.preview(id),id,id[0]==='H'?'质量 1/2 / 单压合印':'质量 1 / 双压合印');
+const other=Trapezoid.rough(Trapezoid.raw('CD','other')).flatMap(h=>Trapezoid.fine(h));
+[quarters[0],quarters[2],other[0],other[2]].forEach(s=>card('materials',s,Trapezoid.NAMES[s.units[0].resource],s.units[0].resource));
+for(const size of [12,24,32,56])card('sizes',Trapezoid.preview('F_ABCD'),size+'px 网格','图标直径 '+(20*size/32).toFixed(1)+'px',10*size/32);
+document.getElementById('gray').onclick=()=>document.body.classList.toggle('grayscale');
+</script></body></html>

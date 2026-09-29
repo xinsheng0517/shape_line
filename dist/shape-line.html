@@ -1,0 +1,4184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>形状流水线 · Shape Line</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏭</text></svg>">
+<style>
+  :root{
+    --bg:#0b0e15; --glass:rgba(20,24,36,.72); --panel:#1a1e2a; --line:#2a3042;
+    --txt:#dbe2f1; --dim:#8a93a8; --acc:#f2a93b;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  #v2-controls{align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px;}
+  #v2-controls select{background:#202b3d;color:var(--txt);border:1px solid #4a6078;border-radius:5px;padding:4px;}
+  #v2-stock{color:#a7c6df;white-space:nowrap;}
+  #v2-orders{display:flex;gap:8px;align-items:center;}
+  .v2-order{display:flex;align-items:center;gap:3px;background:#121c2b;border:1px solid #3c506b;border-radius:6px;padding-right:8px;}
+  .v2-order canvas{width:34px;height:32px;}
+  html, body{ height:100%; overflow:hidden; }
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:"Segoe UI", system-ui, "Microsoft YaHei", sans-serif;
+  }
+
+  /* ===== 画布：占满整个视口（D15 全屏化） ===== */
+  #game{
+    position:fixed; left:0; top:0; display:block; z-index:0;
+    cursor:crosshair; touch-action:none; /* 触屏操作不触发页面滚动/缩放 */
+  }
+
+  /* ===== 顶部浮层 HUD（≤48px，半透明毛玻璃） ===== */
+  #topbar{
+    position:fixed; top:0; left:0; right:0; height:48px; z-index:10;
+    display:flex; align-items:center; gap:8px; padding:6px 12px;
+    background:var(--glass); border-bottom:1px solid var(--line);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+  #tabs-viewport{ position:relative; flex:0 1 260px; width:min(260px,34vw); min-width:0; height:34px; }
+  #tabs{ display:flex; align-items:center; gap:4px; width:100%; height:100%; overflow-x:auto; overflow-y:hidden;
+    touch-action:pan-x; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
+    scrollbar-width:thin; scrollbar-color:var(--acc) transparent; }
+  #tabs::-webkit-scrollbar{ height:4px; }
+  #tabs::-webkit-scrollbar-thumb{ background:var(--acc); border-radius:4px; }
+  #tabs::-webkit-scrollbar-track{ background:transparent; }
+  #tabs-viewport.scrollable #tabs{ cursor:grab; }
+  #tabs.dragging{ cursor:grabbing; user-select:none; }
+  #tabs-viewport::before, #tabs-viewport::after{
+    content:""; position:absolute; top:0; bottom:4px; width:17px; z-index:1;
+    pointer-events:none; opacity:0; transition:opacity .15s;
+  }
+  #tabs-viewport::before{ left:0; background:linear-gradient(90deg,rgba(242,169,59,.45),transparent); }
+  #tabs-viewport::after{ right:0; background:linear-gradient(270deg,rgba(242,169,59,.45),transparent); }
+  #tabs-viewport.can-left::before, #tabs-viewport.can-right::after{ opacity:1; }
+  .tab{
+    min-width:27px; height:27px; border-radius:6px; cursor:pointer; flex:none;
+    border:1px solid var(--line); background:transparent; color:var(--txt);
+    font-size:12px; line-height:1;
+  }
+  .tab.cur{ border-color:var(--acc); color:var(--acc); }
+  .tab.lock{ opacity:.3; cursor:not-allowed; }
+  .tab .st{ display:block; font-size:8px; color:var(--acc); height:8px; }
+  #lvl-name{
+    font-size:13px; font-weight:600; white-space:nowrap;
+    max-width:220px; overflow:hidden; text-overflow:ellipsis;
+  }
+  #target-box{ display:flex; align-items:center; gap:6px; flex:none; }
+  #target-info{ display:flex; flex-direction:column; line-height:1.15; }
+  #target-label{ font-size:11px; color:var(--dim); }
+  #target-cond{ font-size:11px; color:var(--acc); white-space:nowrap; }
+  #target-canvas{ width:34px; height:34px; background:#141824; border:1px solid var(--line); border-radius:8px; }
+  .spacer{ flex:1; }
+  .hbtn{
+    background:transparent; border:1px solid var(--line); border-radius:6px;
+    color:var(--txt); padding:5px 9px; cursor:pointer; font-size:12px;
+    white-space:nowrap; flex:none;
+  }
+  .hbtn:hover{ border-color:var(--acc); }
+  #stat-rate{ font-size:12px; color:var(--dim); white-space:nowrap; flex:none; }
+  #c4-timer{ color:var(--acc); font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; flex:none; }
+  #c4-start.supply-attention{
+    color:#17120a; background:#ffd166; border:2px solid #fff0b3; font-weight:800;
+    box-shadow:0 0 0 2px rgba(255,209,102,.28),0 0 16px rgba(255,209,102,.68);
+    animation:c4-supply-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes c4-supply-pulse{
+    50%{ box-shadow:0 0 0 4px rgba(255,209,102,.44),0 0 24px rgba(255,209,102,.9); }
+  }
+  @media (prefers-reduced-motion:reduce){ #c4-start.supply-attention{ animation:none; } }
+  @media (max-width:720px){
+    #topbar.c4-mode #target-box,
+    #topbar.c4-mode #btn-hint, #topbar.c4-mode #btn-sound{ display:none!important; }
+    #topbar.c4-mode{ gap:4px; padding-inline:5px; }
+    #topbar.c4-mode .hbtn{ padding-inline:5px; }
+    #topbar.c4-mode #c4-timer{ font-size:12px; }
+  }
+
+  /* ===== 底部工具托盘（≤56px，可收起） ===== */
+  #tray{
+    position:fixed; left:0; right:0; bottom:0; height:56px; z-index:10;
+    display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background:var(--glass); border-top:1px solid var(--line);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+  #tray.min{ height:24px; padding:0 10px; gap:0; }
+  #tray.min > *:not(#tray-toggle){ display:none; }
+  #tray-toggle{
+    flex:none; width:26px; height:40px; border-radius:6px; cursor:pointer;
+    border:1px solid var(--line); background:transparent; color:var(--dim); font-size:13px;
+  }
+  #tray-toggle:hover{ border-color:var(--acc); color:var(--acc); }
+  #tray.min #tray-toggle{ height:20px; width:100%; border:none; font-size:11px; }
+  #toolbar{ display:flex; gap:6px; flex:none; }
+  #sidebar{ display:flex; gap:6px; flex:none; }
+  .tool{
+    flex:none; width:56px; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; color:var(--txt); padding:5px 2px 4px; cursor:pointer;
+    text-align:center; position:relative; user-select:none;
+  }
+  .tool:hover{ border-color:var(--acc); }
+  .tool.sel{ border-color:var(--acc); background:#262c3f; }
+  .tool.off{ opacity:.35; cursor:not-allowed; }
+  .tool .g{ font-size:19px; display:block; height:22px; }
+  .tool .n{ font-size:11px; color:var(--dim); display:block; }
+  .tool.sel .n{ color:var(--txt); }
+  .tool .b{ position:absolute; top:1px; right:6px; font-size:11px; color:var(--acc); }
+  .tool .k{ position:absolute; top:1px; left:6px; font-size:10px; color:var(--dim); }
+  #sidebar .tool{ width:38px; }
+  #sidebar .tool .n{ display:none; } /* 动作键只显图标，tooltip 见 title */
+  #sidebar .tool.act .g{ font-size:17px; }
+  #hint{
+    flex:1; min-width:0; text-align:center; font-size:12px; color:var(--dim);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 6px;
+  }
+  #help{ flex:none; font-size:11px; color:var(--dim); white-space:nowrap; }
+  @media (max-width:1180px){ #help{ display:none; } }
+
+  /* ===== 可收起的蓝图库抽屉，覆盖在画布侧边，不挤压网格 ===== */
+  #bpbar{
+    position:fixed; right:8px; top:56px; bottom:64px; z-index:9;
+    display:none; flex-direction:column; gap:6px; align-items:stretch; padding:10px;
+    width:min(270px,82vw); background:var(--glass); border:1px solid var(--line); border-radius:10px;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    overflow-y:auto; scrollbar-width:thin;
+  }
+  #bpbar .bplabel{ font-size:12px; color:var(--dim); }
+  #bpbar .drawer-actions{ display:flex; flex-wrap:wrap; gap:5px; }
+  #bpbar .drawer-actions .hbtn{ flex:1 0 auto; }
+  .bp{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    color:var(--txt); padding:5px 8px; cursor:pointer; font-size:12px;
+    display:flex; align-items:center; gap:6px; user-select:none; flex:none;
+  }
+  .bp .sz{margin-left:auto;}
+  .bp:hover{ border-color:var(--acc); }
+  .bp .sz{ color:var(--dim); font-size:10px; }
+  .bp .op{ color:var(--dim); cursor:pointer; padding:0 2px; }
+  .bp .op:hover{ color:var(--acc); }
+
+  /* ===== 提示气泡 / 弹窗 ===== */
+  #toast{
+    position:fixed; left:50%; bottom:130px; transform:translateX(-50%);
+    background:rgba(0,0,0,.82); border:1px solid var(--line);
+    padding:8px 16px; border-radius:6px; font-size:13px;
+    opacity:0; transition:opacity .2s; pointer-events:none; max-width:80%; z-index:30;
+  }
+  #modal{
+    position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:20;
+    display:none; align-items:center; justify-content:center;
+    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:28px 44px; text-align:center;
+    max-width:94vw; max-height:92vh; overflow-y:auto;
+  }
+  .card h2{ margin-bottom:6px; }
+  .stars{ font-size:36px; color:var(--acc); letter-spacing:6px; margin:8px 0; }
+  #win-info{ color:var(--dim); font-size:13px; margin-bottom:14px; }
+  .btn{
+    background:var(--acc); border:none; color:#1a1305;
+    padding:8px 18px; border-radius:6px; cursor:pointer; font-size:14px; margin:4px;
+  }
+  .btn.ghost{ background:transparent; border:1px solid var(--line); color:var(--txt); }
+  #menu{
+    position:fixed; inset:0; background:rgba(10,12,20,.78); z-index:15;
+    display:none; align-items:center; justify-content:center;
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  }
+  #menu .modes{ display:flex; gap:14px; margin-top:14px; flex-wrap:wrap; justify-content:center; }
+  #menu .mode{
+    flex:1 1 180px; max-width:250px; min-width:150px;
+    background:#141824; border:1px solid var(--line);
+    border-radius:10px; padding:18px 14px; cursor:pointer; text-align:left;
+    transition:border-color .15s;
+  }
+  #menu .mode:hover{ border-color:var(--acc); }
+  #menu .mode b{ display:block; margin-bottom:8px; color:var(--acc); font-size:15px; }
+  #menu .mode p{ font-size:12px; color:var(--dim); line-height:1.6; }
+  #menu .tip{ margin-top:16px; font-size:12px; color:var(--dim); }
+  #ach-list{ margin-top:14px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center; max-width:640px; }
+  .ach{
+    font-size:12px; color:var(--dim); border:1px solid var(--line);
+    border-radius:12px; padding:3px 10px; user-select:none;
+  }
+  .ach.got{ color:var(--acc); border-color:var(--acc); }
+
+  /* ===== 小屏横屏布局：保留所有主要按钮，工具栏可在自身范围内横向滑动 ===== */
+  @media (max-width:800px) {
+    #topbar{ padding:4px 6px; gap:5px; }
+    .hbtn{ padding:3px 6px; font-size:11px; }
+    #lvl-name, #stat-rate{ display:none; }
+    #btn-hint, #btn-sound{ font-size:0; }
+    #btn-hint::after{ content:"?"; font-size:13px; }
+    #btn-sound::after{ content:"♪"; font-size:13px; }
+    #tabs .tab{ min-width:22px; height:22px; font-size:10px; }
+    #target-box canvas{ width:26px; height:26px; }
+    #target-label{ display:none; }
+    #target-cond{ font-size:10px; }
+    #tray{ height:46px; gap:4px; padding:4px 6px; overflow-x:auto; overflow-y:hidden;
+      touch-action:pan-x; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+    #tray.v2-mode:not(.min){ max-height:36vh; overflow-y:auto; }
+    #toolbar, #sidebar{ gap:4px; }
+    .tool{ width:38px; padding:4px 0 3px; }
+    .tool .n{ display:none; }
+    .tool .g{ font-size:16px; height:18px; }
+    .tool .k{ display:none; }
+    #sidebar .tool{ width:32px; }
+    #hint{ display:none; }
+    #bpbar{ top:86px; bottom:50px; right:4px; padding:8px; }
+    #toast{ bottom:100px; }
+  }
+  #tray.v2-mode:not(.min){height:auto;flex-wrap:wrap;justify-content:center;gap:6px;}
+  #tray.v2-mode #v2-controls{flex:0 0 100%;order:-1;min-width:0;}
+  #tray.v2-mode #hint{flex-basis:100%;}
+  #tray.v2-mode #help{display:none;}
+  #tray.v2-mode.min #v2-controls{display:none!important;}
+  @media (max-width:800px){
+    #tray.v2-mode .tool{width:36px;padding:3px 0;}
+    #tray.v2-mode .tool .n,#tray.v2-mode .tool .k{display:none;}
+    #tray.v2-mode #sidebar .tool{width:28px;}
+    #tray.v2-mode #hint{display:none;}
+    #v2-controls{gap:4px;padding:3px;font-size:11px;}
+    #v2-controls .hbtn{font-size:11px;padding:4px 6px;}
+  }
+  @media (max-width:1440px){
+    #topbar.has-tabs{ height:82px; align-items:flex-start; padding-bottom:36px; }
+    #topbar.has-tabs #tabs-viewport{
+      position:absolute; left:10px; right:10px; bottom:4px;
+      width:auto; max-width:none; height:32px;
+    }
+  }
+  @media (orientation:portrait) and (max-width:720px){
+    #topbar.has-tabs{ height:72px; padding-bottom:31px; }
+    #topbar.has-tabs #tabs-viewport{ left:6px; right:6px; bottom:3px; height:27px; }
+    #bpbar{ top:76px; }
+  }
+  #landscape-gate[hidden]{ display:none; }
+  #landscape-gate{
+    position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    padding:20px; background:#0b0e15; color:var(--txt); text-align:center;
+  }
+  #landscape-card{ width:min(360px,100%); padding:24px; border:1px solid var(--line);
+    border-radius:14px; background:var(--panel); box-shadow:0 12px 42px rgba(0,0,0,.45); }
+  #landscape-card .turn-icon{ display:block; font-size:42px; color:var(--acc); margin-bottom:8px; }
+  #landscape-card h2{ font-size:22px; margin-bottom:10px; }
+  #landscape-card p{ font-size:14px; line-height:1.6; color:var(--dim); margin-bottom:16px; }
+  #landscape-action{ background:var(--acc); border:0; border-radius:7px; padding:10px 18px;
+    color:#1a1305; font-size:15px; font-weight:700; cursor:pointer; }
+</style>
+</head>
+<body>
+<canvas id="game" width="768" height="512"></canvas>
+<header id="topbar">
+  <button class="hbtn" id="btn-menu">☰ 菜单</button>
+  <div id="tabs-viewport"><div id="tabs"></div></div>
+  <div id="lvl-name">形状流水线</div>
+  <div id="target-box"><canvas id="target-canvas" width="48" height="48"></canvas><div id="target-info"><span id="target-label">目标</span><span id="target-cond"></span></div></div>
+  <span id="c4-timer" role="timer" aria-live="off" style="display:none"></span>
+  <button class="hbtn" id="c4-start" style="display:none">▶ 启动供料</button>
+  <div class="spacer"></div>
+  <span id="stat-rate">0 件/分</span>
+  <button class="hbtn" id="btn-speed">1x</button>
+  <button class="hbtn" id="btn-hint">提示</button>
+  <button class="hbtn" id="btn-next-target" style="display:none">换一个</button>
+  <button class="hbtn" id="btn-pause">暂停</button>
+  <button class="hbtn" id="btn-restart">重开</button>
+  <button class="hbtn" id="btn-sound">♪ 音效</button>
+</header>
+<div id="tray">
+  <button id="tray-toggle" title="收起 / 展开工具栏">▾</button>
+  <div id="toolbar"></div>
+  <div id="sidebar"></div>
+  <div id="hint"></div>
+  <div id="help">左键放置 · 拖拽连铺 · 右键拖拆 · R 旋转 · M 镜像 · B 框选 · Ctrl+V 粘贴 · S 存蓝图 · ↶↷ 撤销重做 · , . 调速 · 空格暂停</div>
+</div>
+<div id="bpbar"></div>
+<input id="bp-import-file" type="file" accept=".json,.slbp.json,application/json" style="display:none">
+<div id="toast"></div>
+<div id="landscape-gate" role="dialog" aria-modal="true" aria-labelledby="landscape-title" hidden>
+  <div id="landscape-card">
+    <span class="turn-icon" aria-hidden="true">↻</span>
+    <h2 id="landscape-title">请横屏游玩</h2>
+    <p>旋转手机即可继续。也可尝试全屏横屏显示；若浏览器不支持方向锁定，请手动旋转设备。</p>
+    <button id="landscape-action" type="button">尝试横屏全屏</button>
+  </div>
+</div>
+<div id="menu">
+  <div class="card">
+    <h2>形状流水线</h2>
+    <div class="modes">
+      <div class="mode" id="mode-tutorial"><b>教程模式</b><p>8 关学会一切：采集、切割、旋转、合并。首次游玩推荐从这里开始。</p></div>
+      <div class="mode" id="mode-free"><b>自由模式</b><p>32×20 大图，随机目标，不限预算，随意搭建产线。</p></div>
+      <div class="mode" id="mode-challenge"><b>挑战模式</b><p>梯形双切与重组、旋转调度、预算与吞吐，六关试炼冲击三星。</p></div>
+      <div class="mode" id="mode-daily"><b>每日挑战</b><p>当日同题：随机目标 + 预算系数，180 秒限时，本地记最佳。</p></div>
+    </div>
+    <div id="ach-list"></div>
+    <div class="tip">点击模式进入 · 游戏中按 Esc 或 ☰ 菜单返回此处</div>
+  </div>
+</div>
+<div id="modal">
+  <div class="card">
+    <h2>过关！</h2>
+    <div class="stars" id="win-stars">★★★</div>
+    <div id="win-info"></div>
+    <button class="btn" id="btn-next">下一关</button>
+    <button class="btn ghost" id="btn-replay">重玩本关</button>
+    <button class="btn ghost" id="btn-close">返回</button>
+  </div>
+</div>
+<script>
+'use strict';
+/* levels.js — 关卡数据：目标形状、资源节点、枢纽位置、机器预算、星级标准
+ * 形状象限约定（顺时针）：0=右上 1=右下 2=左下 3=左上
+ * 形状件：'C'=圆 'T'=梯形 'S'=星；null=空
+ * budget：本关可用机器数量，Infinity = 不限，0 = 本关不可用
+ * par：[3★ 设备总数上限, 2★ 设备总数上限]（含传送带）；blueprintThreeStar 关卡以蓝图使用取代 3★ 设备数条件
+ */
+const LEVELS = [
+  {
+    name: '铺设',
+    target: ['C', 'C', 'C', 'C'],
+    hint: '把采集器（按 2）贴着圆形资源放下、开口朝右，再选传送带（按 1）一路铺到金色的枢纽。',
+    resources: [{ x: 3, y: 8, type: 'C' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 2, cutter: 0, rotator: 0, merger: 0, trash: 0 },
+    par: [16, 22],
+  },
+  {
+    name: '一刀两断',
+    target: ['C', 'C', null, null],
+    hint: '切割机把圆切成两半：正面出右半，右侧出左半。右半送枢纽，左半请进垃圾桶——枢纽只收目标形状。',
+    resources: [{ x: 3, y: 8, type: 'C' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 2, cutter: 1, rotator: 0, merger: 0, trash: 1 },
+    par: [18, 24],
+  },
+  {
+    name: '转个方向',
+    target: [null, 'C', 'C', null],
+    hint: '右半圆顺时针转 90° 就是下半圆：先切一刀取右半，再让旋转机转一下。',
+    resources: [{ x: 3, y: 8, type: 'C' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 2, cutter: 1, rotator: 1, merger: 0, trash: 1 },
+    par: [19, 26],
+  },
+  {
+    name: '合二为一',
+    target: ['C', 'C', 'T', 'T'],
+    hint: '合并机从背面进「底」、右侧进「补」，空象限被补位填充：圆切出右半做底，梯形切出左半做补。',
+    resources: [{ x: 3, y: 5, type: 'C' }, { x: 3, y: 11, type: 'T' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 3, cutter: 2, rotator: 0, merger: 1, trash: 2 },
+    par: [38, 48],
+  },
+  {
+    name: '星星之火',
+    target: ['S', 'S', null, null],
+    hint: '新资源：星形。老办法——切一刀，取右半，废料进垃圾桶。蓝图栏已解锁：按 B 框选复制，或点下方「切割双路」一键铺线！',
+    resources: [{ x: 3, y: 8, type: 'S' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 2, cutter: 1, rotator: 0, merger: 0, trash: 1 },
+    par: [18, 24],
+    bp: true, // L5 起开放蓝图栏
+  },
+  {
+    name: '转两次',
+    target: [null, null, 'S', 'S'],
+    hint: '右半星转一次是下半星，转两次才是左半星：把两台旋转机串联起来。三星需从蓝图库选取蓝图，并在本关成功粘贴一次。',
+    resources: [{ x: 3, y: 8, type: 'S' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 2, cutter: 1, rotator: 2, merger: 0, trash: 1 },
+    par: [20, 27],
+    bp: true,
+    blueprintThreeStar: true,
+  },
+  {
+    name: '双拼',
+    target: ['C', 'C', 'S', 'S'],
+    hint: '圆和星各切一刀，右半圆做底、左半星做补，在合并机里汇合。',
+    resources: [{ x: 3, y: 5, type: 'C' }, { x: 3, y: 11, type: 'S' }],
+    hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: 3, cutter: 2, rotator: 0, merger: 1, trash: 2 },
+    par: [38, 48],
+    bp: true,
+  },
+  {
+    name: '精打细算',
+    target: ['S', 'S', 'T', 'T'],
+    hint: '传送带只有 20 条！把机器摆在资源与枢纽之间，走最短的路线。',
+    resources: [{ x: 8, y: 3, type: 'S' }, { x: 8, y: 12, type: 'T' }],
+    hub: { x: 16, y: 8 },
+    budget: { belt: 20, extractor: 3, cutter: 2, rotator: 0, merger: 1, trash: 2 },
+    par: [22, 30],
+    bp: true,
+  },
+];
+
+// ===== 教学引导：每关参考解设备位 [type,x,y,dir]，渲染层画半透明幽灵供玩家参照 =====
+// 数据与 test-headless.js 的八关参考解严格同源
+;(function () {
+  const D = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  function beltsInto(g, x1, y1, x2, y2, dir) {
+    const d = D[dir]; let x = x1, y = y1;
+    while (true) { g.push(['belt', x, y, dir]); if (x === x2 && y === y2) break; x += d[0]; y += d[1]; }
+  }
+  const G0 = [['extractor', 4, 8, 1]]; beltsInto(G0, 5, 8, 18, 8, 1);
+  LEVELS[0].guide = G0;
+  const G1 = [['extractor', 4, 8, 1], ['cutter', 5, 8, 1], ['trash', 5, 9, 0]]; beltsInto(G1, 6, 8, 18, 8, 1);
+  LEVELS[1].guide = G1;
+  const G2 = [['extractor', 4, 8, 1], ['cutter', 5, 8, 1], ['trash', 5, 9, 0], ['belt', 6, 8, 1], ['rotator', 7, 8, 1]]; beltsInto(G2, 8, 8, 18, 8, 1);
+  LEVELS[2].guide = G2;
+  const G3 = [['extractor', 4, 5, 1], ['cutter', 5, 5, 1], ['trash', 5, 6, 0]];
+  beltsInto(G3, 6, 5, 15, 5, 1); G3.push(['belt', 16, 5, 2]); beltsInto(G3, 16, 6, 16, 7, 2); G3.push(['belt', 16, 8, 1]);
+  G3.push(['extractor', 4, 11, 1], ['cutter', 5, 11, 1], ['trash', 6, 11, 0]);
+  beltsInto(G3, 5, 12, 16, 12, 1); G3.push(['belt', 17, 12, 0]); beltsInto(G3, 17, 11, 17, 9, 0);
+  G3.push(['merger', 17, 8, 1], ['belt', 18, 8, 1]);
+  LEVELS[3].guide = G3;
+  LEVELS[4].guide = G1; // L5 与 L2 同布局（资源换星形）
+  const G5 = [['extractor', 4, 8, 1], ['cutter', 5, 8, 1], ['trash', 5, 9, 0], ['belt', 6, 8, 1], ['rotator', 7, 8, 1], ['belt', 8, 8, 1], ['rotator', 9, 8, 1]]; beltsInto(G5, 10, 8, 18, 8, 1);
+  LEVELS[5].guide = G5;
+  LEVELS[6].guide = G3.map(c => c.slice()); // L7 与 L4 同布局（补线资源换星形）
+  const G7 = [['extractor', 9, 3, 1], ['cutter', 10, 3, 1], ['trash', 10, 4, 0]];
+  beltsInto(G7, 11, 3, 12, 3, 1); G7.push(['belt', 13, 3, 2]); beltsInto(G7, 13, 4, 13, 6, 2); G7.push(['belt', 13, 7, 1]);
+  G7.push(['extractor', 9, 12, 1], ['cutter', 10, 12, 1], ['trash', 11, 12, 0]);
+  G7.push(['belt', 10, 13, 1], ['belt', 11, 13, 1], ['belt', 12, 13, 0]);
+  beltsInto(G7, 12, 12, 12, 9, 0); G7.push(['belt', 12, 8, 1], ['belt', 13, 8, 1], ['belt', 14, 8, 0]);
+  G7.push(['merger', 14, 7, 1], ['belt', 15, 7, 2], ['belt', 15, 8, 1]);
+  LEVELS[7].guide = G7;
+  // 自测：引导格不得越界、不得压住资源或枢纽
+  for (const L of LEVELS) {
+    console.assert(L.guide && L.guide.length > 0, '每关应有引导');
+    const blocked = new Set(L.resources.map(r => r.x + ',' + r.y).concat([L.hub.x + ',' + L.hub.y]));
+    for (const [t, x, y] of L.guide) {
+      console.assert(x >= 0 && x < 24 && y >= 0 && y < 16, '引导格越界 ' + t + '@' + x + ',' + y);
+      console.assert(!blocked.has(x + ',' + y), '引导格压住资源/枢纽 ' + t + '@' + x + ',' + y);
+    }
+  }
+})();
+
+</script>
+<script>
+'use strict';
+/* blueprint.js — 蓝图系统：数据模型、几何变换、整体预检、内置蓝图
+ * bp = { id, name, w, h, cells: [{ dx, dy, type, dir }] }
+ * dx/dy 相对蓝图左上角；type 复用机器类型；dir 0-3（0上1右2下3左）
+ * 本文件只定义数据与纯函数；放置走 Input.tryPlace 统一入口。
+ */
+
+const Blueprints = {
+  cell(c, dx, dy, dir, includeMode = true) {
+    const out = { dx, dy, type: c.type, dir };
+    if (includeMode && c.machineMode !== undefined) out.machineMode = c.machineMode;
+    return out;
+  },
+
+  withRuleset(bp, result) {
+    if (bp.ruleset !== undefined) result.ruleset = bp.ruleset;
+    return result;
+  },
+
+  // 从框选区域生成蓝图（只含机器格；空选返回 null）
+  fromRegion(x0, y0, x1, y1, name) {
+    const ax = Math.min(x0, x1), ay = Math.min(y0, y1);
+    const bx = Math.max(x0, x1), by = Math.max(y0, y1);
+    const cells = [];
+    for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) {
+      const c = G.grid[y][x];
+      if (c && MACHINE_TYPES.indexOf(c.type) >= 0) {
+        cells.push(this.cell(c, x - ax, y - ay, c.dir, !!(G.v2 || G.v3)));
+      }
+    }
+    if (!cells.length) return null;
+    const bp = { id: 'bp' + Date.now(), name: name || '未命名蓝图', w: bx - ax + 1, h: by - ay + 1, cells };
+    if (G.v3) bp.ruleset = 'petal-v3';
+    else if (G.v2) bp.ruleset = 'trapezoid-v2';
+    return bp;
+  },
+
+  clone(bp) {
+    return this.withRuleset(bp, { id: bp.id, name: bp.name, w: bp.w, h: bp.h, cells: bp.cells.map(c => this.cell(c, c.dx, c.dy, c.dir)) });
+  },
+
+  // 顺时针整体旋转 90°：(dx,dy)→(h-1-dy,dx)，dir=(dir+1)%4，w/h 互换；返回新蓝图
+  rotate(bp) {
+    return this.withRuleset(bp, {
+      id: bp.id, name: bp.name, w: bp.h, h: bp.w,
+      cells: bp.cells.map(c => this.cell(c, bp.h - 1 - c.dy, c.dx, (c.dir + 1) % 4)),
+    });
+  },
+
+  // 左右镜像（超额位）：dx→w-1-dx，朝向左右互换（1↔3，0/2 不变）
+  mirror(bp) {
+    const DIR_MIR = [0, 3, 2, 1];
+    return this.withRuleset(bp, {
+      id: bp.id, name: bp.name, w: bp.w, h: bp.h,
+      cells: bp.cells.map(c => this.cell(c, bp.w - 1 - c.dx, c.dy, DIR_MIR[c.dir])),
+    });
+  },
+
+  // Portable data only: the HTML game shell and runtime machine queues never enter a file.
+  FILE_FORMAT: 'shape-line-blueprint',
+  FILE_VERSION: 3,
+  MAX_FILE_BYTES: 128 * 1024,
+  MAX_CELLS: 512,
+  MAX_DIMENSION: 128,
+  _importSerial: 0,
+
+  byteLength(value) {
+    let bytes = 0;
+    for (const char of value) {
+      const n = char.codePointAt(0);
+      bytes += n <= 0x7f ? 1 : n <= 0x7ff ? 2 : n <= 0xffff ? 3 : 4;
+    }
+    return bytes;
+  },
+
+  sanitizeName(value) {
+    if (typeof value !== 'string') throw new Error('蓝图名称无效');
+    const name = value.replace(/[\u0000-\u001f\u007f<>&"'`]/g, '').trim().slice(0, 40);
+    return name || '未命名蓝图';
+  },
+
+  validateCells(cells, w, h, ruleset) {
+    if (!Array.isArray(cells) || cells.length < 1 || cells.length > this.MAX_CELLS) throw new Error('蓝图单元数量无效');
+    const seen = new Set();
+    return cells.map(c => {
+      if (!c || typeof c !== 'object' || Array.isArray(c)) throw new Error('蓝图单元无效');
+      if (Object.keys(c).some(k => !['dx', 'dy', 'type', 'dir', 'machineMode'].includes(k))) throw new Error('蓝图单元含不允许的字段');
+      if (!Number.isInteger(c.dx) || !Number.isInteger(c.dy) || c.dx < 0 || c.dy < 0 || c.dx >= w || c.dy >= h) throw new Error('蓝图坐标无效');
+      const key = c.dx + ',' + c.dy;
+      if (seen.has(key)) throw new Error('蓝图包含重复坐标');
+      seen.add(key);
+      if (!['belt', 'extractor', 'cutter', 'rotator', 'merger', 'trash'].includes(c.type)) throw new Error('蓝图机器类型无效');
+      if (!Number.isInteger(c.dir) || c.dir < 0 || c.dir > 3) throw new Error('蓝图方向无效');
+      const modes = ruleset === 'petal-v3'
+        ? (c.type === 'cutter' ? ['auto', 'vertical', 'horizontal'] : c.type === 'merger' ? ['auto', 'half', 'final'] : null)
+        : ruleset === 'trapezoid-v2'
+          ? (c.type === 'cutter' ? ['rough', 'fine'] : c.type === 'merger' ? ['half', 'final'] : null)
+          : null;
+      if (c.machineMode !== undefined && (!modes || !modes.includes(c.machineMode))) throw new Error('蓝图机器模式无效');
+      const result = { dx: c.dx, dy: c.dy, type: c.type, dir: c.dir };
+      if (c.machineMode !== undefined) result.machineMode = c.machineMode;
+      return result;
+    });
+  },
+
+  validateBlueprint(bp, ruleset) {
+    if (!bp || typeof bp !== 'object' || Array.isArray(bp)) throw new Error('蓝图内容无效');
+    if (!['classic-v1', 'trapezoid-v2', 'petal-v3'].includes(ruleset)) throw new Error('蓝图规则集无效');
+    const w = bp.w, h = bp.h;
+    if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > this.MAX_DIMENSION || h > this.MAX_DIMENSION) throw new Error('蓝图尺寸无效');
+    return { name: this.sanitizeName(bp.name), ruleset, w, h, cells: this.validateCells(bp.cells, w, h, ruleset) };
+  },
+
+  validateFile(file) {
+    if (!file || typeof file !== 'object' || Array.isArray(file)) throw new Error('蓝图文件内容无效');
+    if (file.format !== this.FILE_FORMAT) throw new Error('蓝图文件格式无效');
+    if (file.version !== this.FILE_VERSION) throw new Error('蓝图文件版本不支持');
+    if (!file.size || typeof file.size !== 'object' || Array.isArray(file.size)) throw new Error('蓝图尺寸无效');
+    if (Object.keys(file).some(k => !['format', 'version', 'ruleset', 'name', 'size', 'cells'].includes(k))) throw new Error('蓝图文件含不允许的字段');
+    if (Object.keys(file.size).some(k => !['w', 'h'].includes(k))) throw new Error('蓝图尺寸字段无效');
+    return this.validateBlueprint({ name: file.name, w: file.size.w, h: file.size.h, cells: file.cells }, file.ruleset);
+  },
+
+  exportFile(bp) {
+    const normalized = this.validateBlueprint(bp, bp.ruleset || 'classic-v1');
+    const file = {
+      format: this.FILE_FORMAT, version: this.FILE_VERSION,
+      ruleset: normalized.ruleset, name: normalized.name,
+      size: { w: normalized.w, h: normalized.h }, cells: normalized.cells,
+    };
+    const text = JSON.stringify(file, null, 2);
+    if (this.byteLength(text) > this.MAX_FILE_BYTES) throw new Error('蓝图文件大小超限');
+    return text;
+  },
+
+  importFile(text) {
+    if (typeof text !== 'string' || this.byteLength(text) > this.MAX_FILE_BYTES) throw new Error('蓝图文件大小超限');
+    let input;
+    try { input = JSON.parse(text); } catch (e) { throw new Error('蓝图文件不是有效 JSON'); }
+    if (input && Object.prototype.hasOwnProperty.call(input, 'format') && input.format !== this.FILE_FORMAT) throw new Error('蓝图文件格式无效');
+    const file = input && input.format === this.FILE_FORMAT;
+    const original = JSON.parse(JSON.stringify(input));
+    const bp = file ? this.validateFile(input) : this.validateBlueprint(input, input && input.ruleset || 'classic-v1');
+    bp.id = 'bp-import-' + Date.now() + '-' + (++this._importSerial);
+    if (bp.ruleset === 'trapezoid-v2') {
+      const preview = this.clone(bp);
+      preview.ruleset = 'petal-v3';
+      preview.cells = preview.cells.map(c => {
+        if (c.type === 'cutter') c.machineMode = c.machineMode === 'rough' ? 'vertical' : 'horizontal';
+        else if (c.type === 'merger') c.machineMode = 'auto';
+        return c;
+      });
+      return { blueprint: bp, original, migrated: true, preview, safeToPaste: false,
+        warning: '旧梯形蓝图仅生成迁移预览；需通过当前关卡源点、端口、预算和占格预检后再粘贴' };
+    }
+    return { blueprint: bp, original, migrated: !file, safeToPaste: true };
+  },
+
+  // 整体预检：全部通过返回 null，否则返回第一个冲突 { x, y, reason }
+  check(bp, px, py) {
+    const active = G.v3 ? 'petal-v3' : G.v2 ? 'trapezoid-v2' : 'classic-v1';
+    if ((bp.ruleset || 'classic-v1') !== active) return { x: px, y: py, reason: '蓝图规则集不匹配' };
+    if (G.v2) for (const c of bp.cells) {
+      const valid = c.type === 'cutter' ? ['rough', 'fine'] : c.type === 'merger' ? ['half', 'final'] : null;
+      if (valid && !valid.includes(c.machineMode)) return { x: px + c.dx, y: py + c.dy, reason: (c.type === 'cutter' ? '切割机' : '合并机') + '模式无效' };
+    }
+    if (G.v3) for (const c of bp.cells) {
+      const valid = c.type === 'cutter' ? ['auto', 'vertical', 'horizontal'] : c.type === 'merger' ? ['auto', 'half', 'final'] : null;
+      if (valid && c.machineMode !== undefined && !valid.includes(c.machineMode)) return { x: px + c.dx, y: py + c.dy, reason: (c.type === 'cutter' ? '切割机' : '混合机') + '模式无效' };
+    }
+    const need = {};
+    for (const c of bp.cells) {
+      const x = px + c.dx, y = py + c.dy;
+      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return { x, y, reason: '超出边界' };
+      if (G.grid[y][x]) return { x, y, reason: '格子被占用' };
+      need[c.type] = (need[c.type] || 0) + 1;
+    }
+    for (const t in need) {
+      if (!(G.budget[t] === Infinity || G.budget[t] >= need[t])) {
+        const c = bp.cells.find(c => c.type === t);
+        const tn = TOOLS.find(u => u.id === t);
+        return { x: px + c.dx, y: py + c.dy, reason: '「' + tn.name + '」预算不足（需 ' + need[t] + '）' };
+      }
+    }
+    return null;
+  },
+};
+
+// ===== 内置蓝图（教程各关的标准模块） =====
+const BUILTIN_BPS = [
+  { id: 'bl-line', name: '直送线×8', w: 8, h: 1,
+    cells: [0, 1, 2, 3, 4, 5, 6, 7].map(dx => ({ dx, dy: 0, type: 'belt', dir: 1 })) },
+  { id: 'bl-cut', name: '切割双路', w: 3, h: 2,
+    cells: [
+      { dx: 0, dy: 0, type: 'extractor', dir: 1 },
+      { dx: 1, dy: 0, type: 'cutter', dir: 1 },
+      { dx: 2, dy: 0, type: 'belt', dir: 1 },
+      { dx: 1, dy: 1, type: 'trash', dir: 0 },
+    ] },
+  { id: 'bl-rot', name: '180°折返', w: 2, h: 1,
+    cells: [
+      { dx: 0, dy: 0, type: 'rotator', dir: 1 },
+      { dx: 1, dy: 0, type: 'rotator', dir: 1 },
+    ] },
+  { id: 'bl-merge', name: '双线汇流', w: 3, h: 2,
+    cells: [
+      { dx: 0, dy: 0, type: 'belt', dir: 1 },
+      { dx: 1, dy: 0, type: 'merger', dir: 1 },
+      { dx: 2, dy: 0, type: 'belt', dir: 1 },
+      { dx: 1, dy: 1, type: 'belt', dir: 0 },
+    ] },
+];
+
+// ===== 断言自测：加载即跑 =====
+(function () {
+  const line = { id: 't', name: 't', w: 2, h: 1, cells: [{ dx: 0, dy: 0, type: 'belt', dir: 1 }, { dx: 1, dy: 0, type: 'belt', dir: 1 }] };
+  const r = Blueprints.rotate(line);
+  console.assert(r.w === 1 && r.h === 2, '蓝图旋转后 w/h 互换');
+  console.assert(r.cells[0].dx === 0 && r.cells[0].dy === 0 && r.cells[0].dir === 2, '旋转：原点不变、朝右→朝下');
+  console.assert(r.cells[1].dx === 0 && r.cells[1].dy === 1 && r.cells[1].dir === 2, '旋转：(1,0)→(0,1)');
+  const r4 = Blueprints.rotate(Blueprints.rotate(Blueprints.rotate(Blueprints.rotate(line))));
+  console.assert(JSON.stringify(r4.cells) === JSON.stringify(line.cells) && r4.w === 2 && r4.h === 1, '旋转四次回到原样');
+  const m = Blueprints.mirror(line);
+  console.assert(m.cells[0].dx === 1 && m.cells[1].dx === 0 && m.cells[0].dir === 3, '镜像：左右互换、朝向翻转');
+  console.assert(BUILTIN_BPS.every(b => b.cells.every(c => c.dx >= 0 && c.dx < b.w && c.dy >= 0 && c.dy < b.h)), '内置蓝图坐标须在范围内');
+})();
+
+</script>
+<script>
+'use strict';
+
+// Pure, trusted rules for the four-petal challenge ruleset. A quarter denotes
+// one of four positions, not necessarily one quarter of the outline's area.
+const PetalV3 = (() => {
+  const KIND = 'petal-v3';
+  const SHAPES = Object.freeze(['T', 'C', 'S']);
+  const GEOMETRY = Object.freeze(Object.fromEntries(SHAPES.map(shape => [shape,
+    Object.freeze({ vertical: 0.5, horizontal: 0.5, equalAreaRequired: false })])));
+  const ORDER = Object.freeze(['TC', 'CT', 'TS', 'ST', 'CS', 'SC']);
+  const HALF_RECIPES = Object.freeze(Object.fromEntries(ORDER.map(pair => [
+    `H_${pair}`, Object.freeze({ top: pair[0], bottom: pair[1] })
+  ])));
+  const FINAL_RECIPES = Object.freeze(Object.fromEntries(ORDER.flatMap(left =>
+    ORDER.map(right => [`F_${left}_${right}`, Object.freeze({ left: `H_${left}`, right: `H_${right}` })]))));
+  const SLOT_ORDER = Object.freeze(['TL', 'BL', 'TR', 'BR']);
+  const known = new WeakSet();
+
+  function make(stage, units, orientation, recipeId, region, itemId, side = null, quadrant = null, trusted = true) {
+    const frozenUnits = Object.freeze(units.map(unit => Object.freeze({
+      ...unit, resource: unit.shapeKind, slot: unit.quadrant
+    })));
+    const kinds = new Set(frozenUnits.map(unit => unit.shapeKind));
+    const sources = new Set(frozenUnits.map(unit => unit.sourceId));
+    const result = Object.freeze({
+      kind: KIND, ruleset: KIND, stage,
+      shapeKind: kinds.size === 1 ? frozenUnits[0].shapeKind : null,
+      sourceId: sources.size === 1 ? frozenUnits[0].sourceId : null,
+      units: frozenUnits,
+      unitIds: Object.freeze(frozenUnits.map(unit => unit.id)),
+      orientation, recipeId, side, quadrant,
+      region: Object.freeze({ ...region }), itemId
+    });
+    if (trusted) known.add(result);
+    return result;
+  }
+  function valid(item, stage) {
+    const count = { raw: 4, 'vertical-half': 2, quarter: 1, 'mixed-half': 2, finished: 4 };
+    return Boolean(item && typeof item === 'object' && known.has(item) &&
+      item.stage === stage && item.kind === KIND && item.units.length === count[stage] &&
+      new Set(item.unitIds).size === item.unitIds.length);
+  }
+  function separate(a, b) {
+    if (!a || !b || !Array.isArray(a.units) || !Array.isArray(b.units)) return false;
+    if (a.orientation !== b.orientation) return false;
+    const units = [...a.units, ...b.units];
+    if (new Set(units.map(unit => unit.id)).size !== units.length) return false;
+    // A source ID names one physical original; it cannot change its base shape.
+    const bySource = new Map();
+    for (const unit of units) {
+      if (bySource.has(unit.sourceId) && bySource.get(unit.sourceId) !== unit.shapeKind) return false;
+      bySource.set(unit.sourceId, unit.shapeKind);
+    }
+    return true;
+  }
+  function raw(shapeKind, id, orientation = 0) {
+    if (!SHAPES.includes(shapeKind) || (typeof id !== 'string' && typeof id !== 'number') ||
+        ![0, 90, 180, 270].includes(orientation)) return null;
+    const sourceId = String(id);
+    if (!sourceId) return null;
+    return make('raw', SLOT_ORDER.map(quadrant => ({
+      id: `${sourceId}:${quadrant}`, sourceId, shapeKind, quadrant, cutStage: 0
+    })), orientation, null, { x0: 0, x1: 1, y0: 0, y1: 1 }, sourceId);
+  }
+  function cut(item, mode = 'auto') {
+    if (!['auto', 'vertical', 'horizontal'].includes(mode)) return null;
+    if (valid(item, 'raw') && mode !== 'horizontal') {
+      return ['L', 'R'].map(side => {
+        const units = item.units.filter(unit => unit.quadrant[1] === side)
+          .map(unit => ({ ...unit, cutStage: 1 }));
+        const region = side === 'L'
+          ? { x0: 0, x1: 0.5, y0: 0, y1: 1 }
+          : { x0: 0.5, x1: 1, y0: 0, y1: 1 };
+        return make('vertical-half', units, item.orientation, null, region,
+          `${item.itemId}:V:${side}`, side);
+      });
+    }
+    if (valid(item, 'vertical-half') && mode !== 'vertical') {
+      return item.units.map(unit => {
+        const upper = unit.quadrant[0] === 'T';
+        const region = {
+          x0: item.region.x0, x1: item.region.x1,
+          y0: upper ? 0 : 0.5, y1: upper ? 0.5 : 1
+        };
+        return make('quarter', [{ ...unit, cutStage: 2 }], item.orientation, null,
+          region, `${item.itemId}:H:${unit.quadrant}`, item.side, unit.quadrant);
+      });
+    }
+    return null;
+  }
+  function merge(a, b) {
+    const quarters = valid(a, 'quarter') && valid(b, 'quarter');
+    const halves = valid(a, 'mixed-half') && valid(b, 'mixed-half');
+    if ((!quarters && !halves) || !separate(a, b)) return null;
+    if (quarters) {
+      if (a.side !== b.side || a.quadrant[0] === b.quadrant[0]) return null;
+      const [top, bottom] = a.quadrant[0] === 'T' ? [a, b] : [b, a];
+      const recipeId = `H_${top.shapeKind}${bottom.shapeKind}`;
+      if (!Object.hasOwn(HALF_RECIPES, recipeId)) return null;
+      const region = a.side === 'L'
+        ? { x0: 0, x1: 0.5, y0: 0, y1: 1 }
+        : { x0: 0.5, x1: 1, y0: 0, y1: 1 };
+      return make('mixed-half', [...top.units, ...bottom.units], a.orientation,
+        recipeId, region, `${top.itemId}+${bottom.itemId}`, a.side);
+    }
+    if (halves) {
+      if (a.side === b.side) return null;
+      const [left, right] = a.side === 'L' ? [a, b] : [b, a];
+      const recipeId = `F_${left.recipeId.slice(2)}_${right.recipeId.slice(2)}`;
+      if (!Object.hasOwn(FINAL_RECIPES, recipeId)) return null;
+      return make('finished', [...left.units, ...right.units], a.orientation,
+        recipeId, { x0: 0, x1: 1, y0: 0, y1: 1 }, `${left.itemId}+${right.itemId}`);
+    }
+    return null;
+  }
+  function rotate(item) {
+    if (!item || !known.has(item)) return null;
+    return make(item.stage, item.units, (item.orientation + 90) % 360,
+      item.recipeId, item.region, item.itemId, item.side, item.quadrant);
+  }
+  function preview(recipeId) {
+    const half = HALF_RECIPES[recipeId];
+    const final = FINAL_RECIPES[recipeId];
+    if (!half && !final) return null;
+    const pairs = half ? [[half, 'L']] : [
+      [HALF_RECIPES[final.left], 'L'], [HALF_RECIPES[final.right], 'R']
+    ];
+    const units = pairs.flatMap(([pair, side]) => ['T', 'B'].map((row, i) => ({
+      id: `preview:${recipeId}:${row}${side}`, sourceId: 'preview',
+      shapeKind: i === 0 ? pair.top : pair.bottom,
+      quadrant: `${row}${side}`, cutStage: 2
+    })));
+    return make(half ? 'mixed-half' : 'finished', units, 0, recipeId,
+      half ? { x0: 0, x1: 0.5, y0: 0, y1: 1 } : { x0: 0, x1: 1, y0: 0, y1: 1 },
+      `preview:${recipeId}`, half ? 'L' : null, null, false);
+  }
+  function isFinished(item, recipeIds = []) {
+    const allowed = typeof recipeIds === 'string' ? [recipeIds] : recipeIds;
+    return Boolean(valid(item, 'finished') && item.orientation === 0 &&
+      Array.isArray(allowed) && allowed.includes(item.recipeId) &&
+      Object.hasOwn(FINAL_RECIPES, item.recipeId) &&
+      item.units.every((unit, i) => unit.quadrant === SLOT_ORDER[i] && unit.cutStage === 2));
+  }
+  return Object.freeze({ raw, cut, merge, rotate, preview, isFinished,
+    SHAPES, GEOMETRY, HALF_RECIPES, FINAL_RECIPES });
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = PetalV3;
+
+</script>
+<script>
+'use strict';
+/* challenges.js — 自由模式配置与目标池（D11）；挑战/每日挑战数据在 D12/D13 加入本文件
+ * 目标池原则（宪法）：全部目标必须可由 全形→切半→旋转→合并 得到，且参考解已过 test-headless.js。
+ * 形状象限约定：0=右上 1=右下 2=左下 3=左上；'C'圆 'T'梯形 'S'星。
+ */
+
+// ===== 自由模式：32×20 大图、格子 24px（画布仍 768 宽）、全机器解锁、不限预算 =====
+const FREE = {
+  w: 32, h: 20, tile: 24,
+  resources: [
+    { x: 3, y: 4, type: 'C' },
+    { x: 3, y: 10, type: 'T' },
+    { x: 3, y: 16, type: 'S' },
+  ],
+  hub: { x: 28, y: 10 },
+};
+
+// ===== 目标池：8 关现有目标 + 12 个新增；par = 自由网格实测参考解设备数（仅作参考展示） =====
+const FREE_TARGETS = [
+  { shape: ['C', 'C', 'C', 'C'], par: 30 },   // L1 全圆（y=4 含拐弯）
+  { shape: ['C', 'C', null, null], par: 28 }, // L2 右半圆
+  { shape: [null, 'C', 'C', null], par: 30 }, // L3 下半圆
+  { shape: ['C', 'C', 'T', 'T'], par: 61 },   // L4 右圆左方（双拼实测）
+  { shape: ['S', 'S', null, null], par: 28 }, // L5 右半星
+  { shape: [null, null, 'S', 'S'], par: 32 }, // L6 左半星
+  { shape: ['C', 'C', 'S', 'S'], par: 61 },   // L7 右圆左星
+  { shape: ['S', 'S', 'T', 'T'], par: 61 },   // L8 右星左方
+  { shape: ['T', 'T', 'T', 'T'], par: 24 },   // 全方（y=10 直线实测）
+  { shape: ['S', 'S', 'S', 'S'], par: 30 },   // 全星（实测）
+  { shape: [null, null, 'C', 'C'], par: 31 }, // 左半圆（实测）
+  { shape: ['C', null, null, 'C'], par: 31 }, // 上半圆（实测）
+  { shape: [null, 'T', 'T', null], par: 25 }, // 下半方（实测）
+  { shape: [null, null, 'T', 'T'], par: 27 }, // 左半方
+  { shape: ['T', null, null, 'T'], par: 27 }, // 上半方
+  { shape: ['S', null, null, 'S'], par: 32 }, // 上半星
+  { shape: [null, 'S', 'S', null], par: 31 }, // 下半星
+  { shape: ['T', 'T', 'C', 'C'], par: 61 },   // 右方左圆（实测）
+  { shape: ['C', 'S', 'S', 'C'], par: 61 },   // 上圆下星（实测）
+  { shape: ['T', 'S', 'S', 'T'], par: 61 },   // 上方下星
+];
+
+// 随机换目标（避免与当前重复）；刷新目标预览与标题
+function nextFreeTarget() {
+  let t;
+  do { t = FREE_TARGETS[Math.floor(Math.random() * FREE_TARGETS.length)]; }
+  while (G.target && shapeEq(t.shape, G.target));
+  G.freePar = t.par;
+  G.target = t.shape.slice();
+  if (typeof UI !== 'undefined' && UI.els && UI.els.lvlName) UI.refreshLevel();
+}
+
+// 装载自由模式：固定资源摆位 + 枢纽 + 无限预算 + 随机目标
+function loadFree() {
+  G.v2 = null;
+  G.v3 = null;
+  G.mode = 'free';
+  setGridSize(FREE.w, FREE.h, FREE.tile);
+  G.grid = [];
+  for (let y = 0; y < GRID_H; y++) G.grid.push(new Array(GRID_W).fill(null));
+  for (const r of FREE.resources) G.grid[r.y][r.x] = { type: 'resource', x: r.x, y: r.y, shapeType: r.type };
+  G.grid[FREE.hub.y][FREE.hub.x] = mkCell('hub', FREE.hub.x, FREE.hub.y, 0);
+  G.budget = {};
+  for (const k of MACHINE_TYPES) G.budget[k] = Infinity;
+  G.used = {};
+  for (const k of MACHINE_TYPES) G.used[k] = 0;
+  G.tickCount = 0; G.delivered = 0; G.won = false; G.paused = false;
+  G.particles.length = 0; G.hubPulse = 0;
+  G.tool = 'belt'; G.toolDir = 1; G.hover = { x: -1, y: -1 };
+  G.paste = null; G.selMode = false; G.sel = null;
+  G.stats.log.length = 0;
+  Undo.clear();
+  G.target = null; // 让 nextFreeTarget 的查重通过
+  nextFreeTarget();
+  UI.refreshLevel(); UI.refreshBudget(); UI.refreshToolbar(); UI.syncPause();
+}
+
+// 断言自测：目标池形状合法（仅含 C/R/S/null 且非全空）
+console.assert(FREE_TARGETS.length === 20, '目标池应为 20 个目标');
+console.assert(FREE_TARGETS.every(t => t.shape.length === 4 && t.shape.some(Boolean) && t.shape.every(q => q === null || q === 'C' || q === 'T' || q === 'S')), '目标形状须为合法四象限');
+console.assert(FREE.w * FREE.tile === 768, '自由模式画布宽度应保持 768');
+
+// ===== 挑战模式（D12）：六关四类约束；预算复用 V1 budget 机制（宪法8） =====
+// 字段：need=交付目标数（C4 无，靠 tickLimit 到时结算）；realTimer=显示真实用时；
+//       realLimit=真实秒数硬上限（超时 0 星）；tickLimit=游戏 tick 上限；betterIsLower=最佳成绩比较方向
+// stars(G) 返回 0-3：0 = 完成但未入星 / 未达标
+const CHALLENGES = [
+  {
+    id: 'C1', name: '开门红', need: 6,
+    target: ['C', 'C', 'C', 'C'],
+    hint: '真实计时，表从进关那一刻就走：把 6 个圆从左下送到右上枢纽。传送带只有 24 条，浪费就重来！星级：★★★≤22s · ★★≤32s · 45s 未完成 0 星。',
+    resources: [{ x: 3, y: 11, type: 'C' }], hub: { x: 18, y: 4 },
+    budget: { belt: 24, extractor: 1, cutter: 0, rotator: 0, merger: 0, trash: 0 },
+    realTimer: true, realLimit: 45, betterIsLower: true,
+    scoreVal: g => g.chal.elapsed,
+    scoreText: g => g.chal.elapsed.toFixed(1) + ' 秒',
+    stars: g => g.delivered < 6 ? 0 : (g.chal.elapsed <= 22 ? 3 : g.chal.elapsed <= 32 ? 2 : 1),
+  },
+  {
+    id: 'C2', name: '极简', need: 1,
+    target: [null, 'C', 'C', null],
+    hint: '用尽可能少的设备做出下半圆。星级：★★★≤7 台 · ★★≤9 台 · ★≤11 台。想想：出料口下面能放什么？机器和机器之间一定要传送带吗？',
+    resources: [{ x: 3, y: 8, type: 'C' }], hub: { x: 9, y: 8 },
+    budget: { belt: Infinity, extractor: Infinity, cutter: Infinity, rotator: Infinity, merger: Infinity, trash: Infinity },
+    betterIsLower: true,
+    scoreVal: () => usedTotal(),
+    scoreText: g => usedTotal() + ' 台设备',
+    stars: () => { const n = usedTotal(); return n <= 7 ? 3 : n <= 9 ? 2 : n <= 11 ? 1 : 0; },
+  },
+  {
+    id: 'C3', name: '紧缩', need: 1,
+    target: ['C', 'C', 'T', 'T'],
+    hint: '右圆左梯形，但传送带只有 9 条！把每一格都走成最短的线。',
+    resources: [{ x: 3, y: 6, type: 'C' }, { x: 3, y: 10, type: 'T' }], hub: { x: 8, y: 8 },
+    budget: { belt: 9, extractor: 2, cutter: 2, rotator: 0, merger: 1, trash: 2 },
+    betterIsLower: true,
+    scoreVal: g => g.used.belt,
+    scoreText: g => '传送带 ' + g.used.belt + ' 条',
+    stars: g => g.used.belt <= 8 ? 3 : 2, // 预算硬约束 9，参考解 8 条
+  },
+  {
+    id: 'C4', name: '并行', need: 0, passNeed: 120, // 到时结算；至少交付 120 个才达标
+    target: ['C', 'C', null, null],
+    hint: '布线完成后点击「启动供料」，随后在 60 秒游戏时间内持续交付右半圆。设备不限量；星级线：★≥120 · ★★≥220 · ★★★≥300。',
+    resources: [{ x: 3, y: 5, type: 'C' }, { x: 3, y: 11, type: 'C' }], hub: { x: 19, y: 8 },
+    budget: { belt: Infinity, extractor: Infinity, cutter: Infinity, rotator: Infinity, merger: Infinity, trash: Infinity },
+    tickLimit: 400, betterIsLower: false, // 400 tick × 150ms = 60s 游戏时间
+    scoreVal: g => g.delivered,
+    scoreText: g => '交付 ' + g.delivered + ' 个',
+    stars: g => g.delivered >= 300 ? 3 : g.delivered >= 220 ? 2 : g.delivered >= 120 ? 1 : 0,
+  },
+  {
+    id: 'C5', name: '旋转大师', need: 50,
+    target: ['S', null, null, 'S'], // 上半星：outA/outB 都直出不了，必须旋转一次
+    hint: '50 秒真实时间交付 50 个上半星！旋转机只有 1 台、传送带只有 8 条——哪个出料口才是原料？星级：★★★≤20s · ★★≤32s · 未达标 0 星。',
+    resources: [{ x: 3, y: 8, type: 'S' }], hub: { x: 13, y: 9 },
+    budget: { belt: 8, extractor: 1, cutter: 1, rotator: 1, merger: 0, trash: 1 },
+    realTimer: true, realLimit: 50, betterIsLower: true,
+    scoreVal: g => g.chal.elapsed,
+    scoreText: g => g.chal.elapsed.toFixed(1) + ' 秒 · 交付 ' + g.delivered + ' 个',
+    stars: g => g.delivered < 50 ? 0 : (g.chal.elapsed <= 20 ? 3 : g.chal.elapsed <= 32 ? 2 : 1),
+  },
+  {
+    id: 'C6', name: '终章', need: 8,
+    target: ['C', 'C', 'S', 'S'],
+    hint: '双约束终章：90 秒内持续交付 8 个右圆左星（产线卡死即败），设备星级线 25/28/30 台。垃圾桶只有 1 个——两路废料得汇进同一张口。',
+    resources: [{ x: 3, y: 5, type: 'C' }, { x: 3, y: 11, type: 'S' }], hub: { x: 11, y: 8 },
+    budget: { belt: Infinity, extractor: 2, cutter: 2, rotator: 0, merger: 1, trash: 1 },
+    realTimer: true, realLimit: 90, betterIsLower: true,
+    scoreVal: () => usedTotal(),
+    scoreText: g => usedTotal() + ' 台 · ' + g.chal.elapsed.toFixed(1) + ' 秒',
+    stars: g => {
+      const n = usedTotal();
+      if (g.chal.elapsed > 90 || g.delivered < 8 || n > 30) return 0;
+      return n <= 25 ? 3 : n <= 28 ? 2 : 1;
+    },
+  },
+];
+
+// 装载挑战关（网格同教程 24×16）
+function loadChallenge(i) {
+  i = Math.max(0, Math.min(CHALLENGES.length - 1, i));
+  if (CHALLENGES[i].ruleset === 'petal-v3') { V3Runtime.load(i); return; }
+  if (CHALLENGES[i].ruleset === 'trapezoid-v2') { V2Runtime.load(i); return; }
+  G.v2 = null;
+  G.v3 = null;
+  const C = CHALLENGES[i];
+  G.mode = 'challenge';
+  G.chalIndex = i;
+  G.save.lastChal = i; persist();
+  G.chalDef = C; // 当前挑战定义（每日挑战复用同一结算管线）
+  setGridSize(24, 16, 32);
+  G.grid = [];
+  for (let y = 0; y < GRID_H; y++) G.grid.push(new Array(GRID_W).fill(null));
+  for (const r of C.resources) G.grid[r.y][r.x] = { type: 'resource', x: r.x, y: r.y, shapeType: r.type };
+  G.grid[C.hub.y][C.hub.x] = mkCell('hub', C.hub.x, C.hub.y, 0);
+  G.target = C.target.slice();
+  G.budget = {};
+  for (const k in C.budget) G.budget[k] = C.budget[k];
+  G.used = {};
+  for (const k of MACHINE_TYPES) G.used[k] = 0;
+  G.tickCount = 0; G.delivered = 0; G.won = false; G.paused = false;
+  G.particles.length = 0; G.hubPulse = 0;
+  G.tool = 'belt'; G.toolDir = 1; G.hover = { x: -1, y: -1 };
+  G.paste = null; G.selMode = false; G.sel = null;
+  G.stats.log.length = 0;
+  G.chal = { elapsed: 0, done: false, started: C.id !== 'C4' }; // C4 布线期不供料、不倒计时
+  Undo.clear();
+  UI.refreshLevel(); UI.refreshBudget(); UI.refreshToolbar(); UI.syncPause();
+}
+
+function startC4Supply() {
+  if (G.mode !== 'challenge' || !G.chalDef || G.chalDef.id !== 'C4' || !G.chal || G.chal.done || G.chal.started) return false;
+  G.chal.started = true;
+  G.paused = false;
+  UI.syncPause();
+  return true;
+}
+
+// 挑战结算：计星、存最佳、弹窗（每日挑战走 dailyWin 分支）
+function challengeWin() {
+  if (!G.chal || G.chal.done) return;
+  const C = G.chalDef;
+  G.chal.done = true;
+  G.won = true; // 停模拟（同教程过关）
+  const stars = C.stars(G);
+  const isDaily = !!C.isDaily;
+  const scores = G.v3 ? G.save.challengeV3 : G.v2 ? G.save.challengeV2 : G.save.challenges;
+  const rec = (isDaily ? G.save.daily[C.dateStr] : scores[C.id]) || { stars: 0, best: null };
+  const val = C.scoreVal(G);
+  const isBest = rec.best === null || (C.betterIsLower ? val < rec.best : val > rec.best);
+  const next = { stars: Math.max(rec.stars, stars), best: isBest ? val : rec.best };
+  if (isDaily) G.save.daily[C.dateStr] = next; else scores[C.id] = next;
+  persist();
+  AudioFX.win();
+  UI.refreshLevels();
+  checkAchievements();
+  setTimeout(() => UI.showChalWin(stars, C.scoreText(G), isBest), 700);
+}
+
+// 每 tick 检查时间类约束（由 core frame() 在 Sim.tick 后调用）
+function challengeTick() {
+  if (!G.chal || G.chal.done || !G.chalDef) return;
+  const C = G.chalDef;
+  if (C.id === 'C4' && !G.chal.started) return;
+  if (C.tickLimit && G.tickCount >= C.tickLimit) challengeWin(); // C4 到时按交付数结算
+  else if (C.realLimit && G.chal.elapsed > C.realLimit) challengeWin(); // 超时按当前数据结算
+}
+
+console.assert(CHALLENGES.length === 6, '挑战应为 6 关');
+console.assert(CHALLENGES.every(c => c.id && c.target.length === 4 && c.hub && c.resources.length), '挑战数据须完整');
+
+// ===== 每日挑战（D13 超额位）：当日日期 → mulberry32 确定性随机 → 同题 =====
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+// 本地日期的 YYYY-MM-DD 与对应随机流
+function dailyRand() {
+  const d = new Date();
+  const str = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return { str, rand: mulberry32(h) };
+}
+// 生成当日挑战定义（复用挑战结算管线，存档进 save.daily）
+function dailyDef() {
+  const { str, rand } = dailyRand();
+  const t = FREE_TARGETS[Math.floor(rand() * FREE_TARGETS.length)];
+  const k = [0.8, 1.0, 1.2][Math.floor(rand() * 3)];
+  const devLimit = Math.round(t.par * k);
+  return {
+    id: 'daily', isDaily: true, dateStr: str, name: '每日挑战 ' + str, need: 1,
+    target: t.shape.slice(),
+    hint: '今日题目：' + t.par + ' 台参考线 × ' + k + ' = 至多 ' + devLimit + ' 台设备，180 秒内完成。全服同题，拼最佳！',
+    resources: FREE.resources.map(r => ({ x: r.x, y: r.y, type: r.type })), // 复用自由模式摆位
+    hub: { x: FREE.hub.x, y: FREE.hub.y },
+    budget: { belt: Infinity, extractor: Infinity, cutter: Infinity, rotator: Infinity, merger: Infinity, trash: Infinity },
+    realTimer: true, realLimit: 180, betterIsLower: true, devLimit,
+    scoreVal: g => g.chal.elapsed,
+    scoreText: g => g.chal.elapsed.toFixed(1) + ' 秒 · ' + usedTotal() + ' 台',
+    stars: g => (g.chal.elapsed > 180 || usedTotal() > devLimit) ? 0 : (usedTotal() <= Math.round(t.par * 0.8) ? 3 : usedTotal() <= t.par ? 2 : 1),
+  };
+}
+function loadDaily() {
+  G.v2 = null;
+  G.v3 = null;
+  const D = dailyDef();
+  G.mode = 'daily';
+  G.chalDef = D;
+  setGridSize(FREE.w, FREE.h, FREE.tile); // 每日挑战用 32×20 大图
+  G.grid = [];
+  for (let y = 0; y < GRID_H; y++) G.grid.push(new Array(GRID_W).fill(null));
+  for (const r of D.resources) G.grid[r.y][r.x] = { type: 'resource', x: r.x, y: r.y, shapeType: r.type };
+  G.grid[D.hub.y][D.hub.x] = mkCell('hub', D.hub.x, D.hub.y, 0);
+  G.target = D.target.slice();
+  G.budget = {};
+  for (const k in D.budget) G.budget[k] = D.budget[k];
+  G.used = {};
+  for (const k of MACHINE_TYPES) G.used[k] = 0;
+  G.tickCount = 0; G.delivered = 0; G.won = false; G.paused = false;
+  G.particles.length = 0; G.hubPulse = 0;
+  G.tool = 'belt'; G.toolDir = 1; G.hover = { x: -1, y: -1 };
+  G.paste = null; G.selMode = false; G.sel = null;
+  G.stats.log.length = 0;
+  G.chal = { elapsed: 0, done: false };
+  Undo.clear();
+  UI.refreshLevel(); UI.refreshBudget(); UI.refreshToolbar(); UI.syncPause();
+}
+
+// ===== 成就系统（D13 超额位）：计数器 + toast + 主菜单一览 =====
+const ACHIEVEMENTS = [
+  { id: 'first-win', name: '首胜', desc: '通过教程第 1 关', test: s => (s.stars[0] || 0) >= 1 },
+  { id: 'graduate', name: '毕业', desc: '教程 8 关全部通过', test: s => LEVELS.every((_, i) => (s.stars[i] || 0) >= 1) },
+  { id: 'all-stars', name: '全星', desc: '教程 8 关全部三星', test: s => LEVELS.every((_, i) => (s.stars[i] || 0) >= 3) },
+  { id: 'blueprint-3', name: '蓝图师', desc: '保存 3 个自建蓝图', test: s => Object.keys(s.blueprints).length >= 3 },
+  { id: 'chal-3star', name: '挑战者', desc: '任一挑战达成 3 星', test: s =>
+    [s.challenges, s.challengeV3 || {}].some(scores => Object.keys(scores).some(k => (scores[k].stars || 0) >= 3)) },
+  { id: 'chal-all', name: '全挑战', desc: '6 个挑战全部完成', test: s => CHALLENGES.every(c =>
+    (((c.ruleset === 'petal-v3' ? s.challengeV3 || {} : s.challenges)[c.id] || {}).stars || 0) >= 1) },
+  { id: 'daily-1', name: '常客', desc: '完成一次每日挑战', test: s => Object.keys(s.daily).length >= 1 },
+  { id: 'speedrun', name: '速通者', desc: 'C1 达成 3 星', test: s =>
+    (((s.challengeV3 || {}).C1 || s.challenges.C1 || {}).stars || 0) >= 3 },
+];
+function checkAchievements() {
+  for (const a of ACHIEVEMENTS) {
+    if (!G.save.achievements[a.id] && a.test(G.save)) {
+      G.save.achievements[a.id] = true;
+      persist();
+      UI.toast('成就解锁：「' + a.name + '」——' + a.desc, 4);
+      if (typeof UI !== 'undefined' && UI.renderAchievements) UI.renderAchievements();
+    }
+  }
+}
+console.assert(ACHIEVEMENTS.length === 8, '成就应为 8 个');
+console.assert(dailyDef().target.length === 4, '每日挑战目标须合法');
+
+</script>
+<script>
+'use strict';
+/* Four-petal challenge runtime. Loaded after challenges.js, before core.js. */
+const V3_QUEUE_CAPACITY = 64;
+const V3_SUPPLY_MOVES = 3; // 多资源共用传送线时保留汇流空档，避免单一路径持续占满入口
+const V3Runtime = {
+  active() { return !!G.v3; },
+  stock(def) {
+    return def.resources.map((resource, node) =>
+      Array.from({ length: def.initial[node] || 0 }, (_, i) =>
+        PetalV3.raw(resource.type, `${def.id}:source${node}:raw${i}`)));
+  },
+  supply(def) {
+    const stockByNode = this.stock(def);
+    return {
+      stockByNode,
+      nextRawByNode: stockByNode.map(items => items.length),
+    };
+  },
+  load(index) {
+    const def = CHALLENGES[index];
+    if (!def || def.ruleset !== 'petal-v3') throw new Error('Not a four-petal challenge');
+    G.v2 = null;
+    G.mode = 'challenge'; G.chalIndex = index; G.chalDef = def;
+    G.save.lastChal = index;
+    setGridSize(24, 16, 32);
+    G.grid = Array.from({ length: 16 }, () => Array(24).fill(null));
+    for (let i = 0; i < def.resources.length; i++) {
+      const r = def.resources[i];
+      G.grid[r.y][r.x] = { type: 'resource', x: r.x, y: r.y,
+        shapeType: r.type, sourceNode: i };
+    }
+    G.grid[def.hub.y][def.hub.x] = mkCell('hub', def.hub.x, def.hub.y, 0);
+    G.target = PetalV3.preview(def.recipeId);
+    G.budget = { ...def.budget };
+    G.used = {}; MACHINE_TYPES.forEach(type => { G.used[type] = 0; });
+    G.tickCount = 0; G.delivered = 0; G.won = false; G.paused = false;
+    G.chal = { elapsed: 0, done: false, started: false };
+    G.particles.length = 0; G.hubPulse = 0; G.stats.log.length = 0;
+    G.tool = 'belt'; G.toolDir = 1; G.hover = { x: -1, y: -1 };
+    G.paste = null; G.selMode = false; G.sel = null; G.clip = null;
+    G.v3 = { def, running: true, toolModes: { cutter: 'auto', merger: 'auto' },
+      ...this.supply(def), deliveredItems: [], discardedItems: [],
+      discardReasons: [], emitted: 0 };
+    Undo.clear(); persist();
+    UI.refreshLevel(); UI.refreshBudget(); UI.refreshToolbar(); UI.syncPause();
+    if (typeof UI.refreshV3 === 'function') UI.refreshV3();
+  },
+  resetMaterial() {
+    if (!G.v3) return;
+    for (const row of G.grid) for (const c of row) if (c) {
+      for (const key of ['item', 'inA', 'inB', 'outA', 'outB', 'proc']) c[key] = null;
+      c.queueA = []; c.queueB = []; c.cd = 1; c.status = ''; c.nextPort = 0;
+      c.autoHalves = [];
+    }
+    Object.assign(G.v3, this.supply(G.v3.def));
+    G.v3.deliveredItems = []; G.v3.discardedItems = []; G.v3.discardReasons = [];
+    G.v3.emitted = 0; G.v3.running = true;
+    G.delivered = 0; G.tickCount = 0; G.won = false; G.paused = false;
+    G.chal.elapsed = 0; G.chal.done = false; G.chal.started = false;
+    G.stats.log.length = 0; G.hubPulse = 0;
+    UI.syncPause();
+    if (typeof UI.refreshV3 === 'function') UI.refreshV3();
+  },
+  occupied(c) {
+    return !!(c.item || c.inA || c.inB || c.outA || c.outB || c.proc ||
+      (c.queueA && c.queueA.length) || (c.queueB && c.queueB.length) ||
+      (c.autoHalves && c.autoHalves.length));
+  },
+  item(shape, c) { return { shape, fx: c.x, fy: c.y, moveTick: G.tickCount }; },
+  materialIds() {
+    if (!G.v3) return [];
+    const shapes = G.v3.stockByNode.flat().concat(
+      G.v3.deliveredItems, G.v3.discardedItems);
+    for (const row of G.grid) for (const c of row) if (c) {
+      for (const key of ['item', 'inA', 'inB', 'outA', 'outB'])
+        if (c[key]) shapes.push(c[key].shape);
+      for (const key of ['queueA', 'queueB'])
+        for (const it of c[key] || []) shapes.push(it.shape);
+      for (const shape of c.autoHalves || []) shapes.push(shape);
+      if (c.proc) {
+        shapes.push(c.proc.shape);
+        if (c.proc.shapeB) shapes.push(c.proc.shapeB);
+      }
+    }
+    return shapes.flatMap(shape => shape.units.map(unit => unit.id));
+  },
+  accepts(c, sx, sy, it) {
+    if (!it || !it.shape || it.shape.ruleset !== 'petal-v3') return null;
+    const d = DIRV[c.dir], back = sx === c.x - d[0] && sy === c.y - d[1];
+    const r = DIRV[(c.dir + 1) % 4], l = DIRV[(c.dir + 3) % 4];
+    if (c.type === 'hub') return PetalV3.isFinished(it.shape, [G.v3.def.recipeId]) &&
+      G.delivered < G.v3.def.need ? 'consume' : null;
+    if (c.type === 'trash') return 'discard';
+    if (c.type === 'belt') return !(sx === c.x + d[0] && sy === c.y + d[1]) &&
+      !c.item ? 'item' : null;
+    let port = null;
+    if (back) port = 'queueA';
+    if (c.type === 'cutter' && sx === c.x + l[0] && sy === c.y + l[1]) port = 'queueB';
+    if (c.type === 'merger' && sx === c.x + r[0] && sy === c.y + r[1]) port = 'queueB';
+    if (c.type === 'rotator' && !back) return null;
+    if (!port || !['cutter', 'merger', 'rotator'].includes(c.type)) return null;
+    if (c.type === 'cutter' && !PetalV3.cut(it.shape, c.machineMode || 'auto')) return null;
+    if (c.type === 'merger' && (c.machineMode || 'auto') === 'auto' &&
+        it.shape.stage === 'quarter') {
+      const expected = G.target.units.find(unit => unit.quadrant === it.shape.quadrant);
+      if (!expected || expected.shapeKind !== it.shape.shapeKind) return 'discard';
+    }
+    return (c[port] || []).length < V3_QUEUE_CAPACITY ? port : null;
+  },
+  blockReason(dest, it) {
+    if (!dest) return '下游未连接';
+    if (dest.type === 'hub') {
+      if (it.shape.stage !== 'finished') return '原料尚未完成二级切割与合并';
+      return '目标配方或朝向不符';
+    }
+    if (dest.type === 'belt' && dest.item) return '下游传送带已满';
+    return '下游入口未对齐或缓存已满';
+  },
+  outletStatus(c) {
+    const waiting = [];
+    for (const [slot, label, dir] of [
+      ['outA', '前出口', c.dir], ['outB', '侧出口', (c.dir + 1) % 4]
+    ]) {
+      const it = c[slot];
+      if (!it) continue;
+      const d = DIRV[dir], dest = cellAt(c.x + d[0], c.y + d[1]);
+      const reason = dest && this.accepts(dest, c.x, c.y, it)
+        ? '等待运输' : this.blockReason(dest, it);
+      waiting.push(label + (reason === '下游未连接' ? '未连接，产物待取' : '：' + reason));
+    }
+    return waiting.join('；');
+  },
+  tick() {
+    if (!G.v3 || !G.v3.running || G.paused || G.won) return;
+    G.tickCount++;
+    if (G.tickCount % MOVE_EVERY === 0) this.movement();
+    if (!G.won) this.machines();
+  },
+  movement() {
+    const sources = [];
+    for (const row of G.grid) for (const c of row) if (c) {
+      const slots = c.type === 'belt' || c.type === 'extractor' ? ['item'] :
+        ['outA', 'outB'];
+      for (const slot of slots) if (c[slot]) sources.push({ c, slot, it: c[slot] });
+    }
+    for (const { c, slot, it } of sources) {
+      if (G.won || c[slot] !== it) continue;
+      const d = DIRV[slot === 'outB' ? (c.dir + 1) % 4 : c.dir];
+      const dest = cellAt(c.x + d[0], c.y + d[1]);
+      const port = dest && this.accepts(dest, c.x, c.y, it);
+      if (!port) { c.status = this.blockReason(dest, it); continue; }
+      c[slot] = null; c.status = '';
+      if (port === 'consume') {
+        G.v3.deliveredItems.push(it.shape); G.delivered++;
+        G.stats.log.push(performance.now()); G.hubPulse = 1;
+        AudioFX.deliver(); burst(dest.x, dest.y, '#ffd166', 12);
+        if (G.delivered >= G.v3.def.need) challengeWin();
+      } else if (port === 'discard') {
+        G.v3.discardedItems.push(it.shape);
+        const reason = dest.type === 'merger' ? '非目标瓣' : '玩家垃圾桶';
+        G.v3.discardReasons.push({ itemId: it.shape.itemId, reason });
+        dest.status = reason + '已回收';
+        burst(dest.x, dest.y, '#6a7286', 5);
+      } else {
+        it.fx = c.x; it.fy = c.y; it.moveTick = G.tickCount;
+        if (port === 'item') dest.item = it;
+        else { if (!dest[port]) dest[port] = []; dest[port].push(it); }
+      }
+    }
+  },
+  machines() {
+    for (const row of G.grid) for (const c of row) if (c) {
+      if (c.type === 'extractor') {
+        if (c.item) continue;
+        if (c.cd > 0) c.cd--;
+        if (c.cd > 0) continue;
+        const node = DIRV.map(d => cellAt(c.x + d[0], c.y + d[1]))
+          .find(n => n && n.type === 'resource' && Number.isInteger(n.sourceNode));
+        if (!node) { c.status = '未连接资源节点'; continue; }
+        const source = node.sourceNode;
+        const stock = G.v3.stockByNode[source];
+        const shape = stock.length ? stock.shift() : PetalV3.raw(
+          G.v3.def.resources[source].type,
+          `${G.v3.def.id}:source${source}:raw${G.v3.nextRawByNode[source]++}`);
+        c.item = this.item(shape, c); c.cd = MOVE_EVERY * V3_SUPPLY_MOVES;
+        c.status = ''; G.v3.emitted++;
+        continue;
+      }
+      if (!['cutter', 'rotator', 'merger'].includes(c.type)) continue;
+      c.queueA = c.queueA || []; c.queueB = c.queueB || [];
+      c.autoHalves = c.autoHalves || [];
+      if (c.proc) {
+        if (c.proc.t > 0) c.proc.t--;
+        if (c.proc.t <= 0) {
+          if (c.proc.autoStage === 'half') {
+            c.autoHalves.push(c.proc.shape);
+            c.proc = null; c.status = '内部半块待合并';
+          } else if (!c.outA && !c.outB) {
+            c.outA = this.item(c.proc.shape, c);
+            if (c.proc.shapeB) c.outB = this.item(c.proc.shapeB, c);
+            c.proc = null; c.status = '';
+          } else c.status = '输出堵塞';
+        }
+        continue;
+      }
+      if (c.outA || c.outB) { c.status = this.outletStatus(c); continue; }
+      if (c.type === 'merger') {
+        const auto = (c.machineMode || 'auto') === 'auto';
+        if (auto && c.autoHalves.length >= 2) {
+          let final = null, pair = null;
+          for (let i = 0; i < c.autoHalves.length && !final; i++)
+            for (let j = i + 1; j < c.autoHalves.length && !final; j++) {
+              const candidate = PetalV3.merge(c.autoHalves[i], c.autoHalves[j]);
+              if (candidate && candidate.recipeId === G.v3.def.recipeId) {
+                final = candidate; pair = [i, j];
+              }
+            }
+          if (final) {
+            c.autoHalves.splice(pair[1], 1); c.autoHalves.splice(pair[0], 1);
+            c.proc = { shape: final, t: PROC_TICKS, autoStage: 'final' };
+            c.status = '最终合并中'; continue;
+          }
+        }
+        const all = c.queueA.concat(c.queueB).sort((a, b) =>
+          (a.moveTick || 0) - (b.moveTick || 0) ||
+          String(a.shape.itemId).localeCompare(String(b.shape.itemId)));
+        let match = null;
+        for (let i = 0; i < all.length && !match; i++)
+          for (let j = i + 1; j < all.length && !match; j++) {
+            const shape = PetalV3.merge(all[i].shape, all[j].shape);
+            if (!shape) continue;
+            if (auto && shape.stage === 'mixed-half') {
+              const expected = G.v3.def.recipeId;
+              const wanted = shape.side === 'L' ? expected.slice(2, 4) : expected.slice(5, 7);
+              if (shape.recipeId !== 'H_' + wanted) continue;
+            }
+            if (auto && shape.stage === 'finished' && shape.recipeId !== G.v3.def.recipeId) continue;
+            if (c.machineMode === 'half' && shape.stage !== 'mixed-half') continue;
+            if (c.machineMode === 'final' && shape.stage !== 'finished') continue;
+            match = { a: all[i], b: all[j], shape };
+          }
+        if (match) {
+          c.queueA = c.queueA.filter(it => it !== match.a && it !== match.b);
+          c.queueB = c.queueB.filter(it => it !== match.a && it !== match.b);
+          c.proc = { shape: match.shape, t: PROC_TICKS,
+            autoStage: auto && match.shape.stage === 'mixed-half' ? 'half' : null };
+          c.status = '合并中';
+        } else c.status = all.length ? '等待可配对材料' : '等待材料';
+        continue;
+      }
+      const choices = c.nextPort === 1 ? ['queueB', 'queueA'] : ['queueA', 'queueB'];
+      const port = choices.find(name => c[name].length);
+      if (!port) { c.status = '等待材料'; continue; }
+      const input = c[port][0].shape;
+      const result = c.type === 'rotator' ? [PetalV3.rotate(input)] :
+        PetalV3.cut(input, c.machineMode || 'auto');
+      if (!result || !result[0]) { c.status = '材料阶段或切割方向不符'; continue; }
+      c[port].shift(); c.nextPort = port === 'queueA' ? 1 : 0;
+      c.proc = { shape: result[0], shapeB: result[1] || null, t: PROC_TICKS };
+      c.status = '加工中';
+    }
+  },
+};
+
+for (const [index, name, recipeId, need, positions, hub, initial, limited] of [
+  [0, '双材初识', 'F_TC_TC', 3, [[2, 3], [2, 8], [2, 13]], [21, 8], [1, 1, 1], false],
+  [1, '三材调度', 'F_TC_TS', 6, [[2, 3], [2, 12], [20, 2]], [20, 13], [2, 2, 2], false],
+  [4, '双材精炼', 'F_CS_CS', 4, [[2, 3], [2, 8], [2, 13]], [21, 8], [1, 1, 1], true],
+  [5, '三材终章', 'F_TC_SC', 8, [[2, 2], [2, 13], [20, 2]], [20, 13], [2, 2, 2], true],
+]) {
+  const budget = Object.fromEntries(
+    ['belt', 'extractor', 'cutter', 'rotator', 'merger', 'trash']
+      .map(type => [type, Infinity]));
+  if (limited) { budget.extractor = 3; budget.belt = 80; }
+  CHALLENGES[index] = {
+    id: `C${index + 1}`, name, revision: 3, ruleset: 'petal-v3',
+    recipeId, need, target: PetalV3.preview(recipeId), initial,
+    resources: positions.map(([x, y], i) => ({ x, y, type: PetalV3.SHAPES[i] })),
+    hub: { x: hub[0], y: hub[1] }, budget, betterIsLower: true,
+    scoreVal: g => g.used.belt,
+    scoreText: g => `${g.delivered} 个新成品 · ${g.used.belt} 条传送带`,
+    stars: g => {
+      if (g.delivered < g.chalDef.need) return 0;
+      const belts = g.used.belt;
+      if (!limited) return belts <= 55 ? 3 : belts <= 70 ? 2 : 1;
+      return belts <= 62 ? 3 : belts <= 72 ? 2 : 1;
+    },
+  };
+}
+
+</script>
+<script>
+'use strict';
+/* core.js — 常量、全局状态 G、主循环（固定步长模拟 + rAF 插值渲染）、存档、音效
+ * 数据流约定：input.js 只写 G；Sim 只被 tick 调用；Render 只读 G（粒子属表现层状态）。
+ */
+
+// ===== 常量 =====
+// TILE/GRID_W/GRID_H 为活值（宪法3双豁免）：GRID_W/H 按模式取值（D11）；
+// TILE 名义值由 setGridSize 设定（无头环境与兜底用），浏览器中由 Render.resize() 用
+// computeTile 按视口动态覆盖（D16）——窗口多大，格子就多大。
+let TILE = 32;
+let GRID_W = 24, GRID_H = 16;
+const MAX_TILE = 56; // 上限，防超大屏格子过粗（4.3）
+const MIN_TILE = 1; // 小屏横屏时优先保证整张网格不被裁切
+function setGridSize(w, h, tile) {
+  GRID_W = w; GRID_H = h; TILE = tile;
+  if (typeof Render !== 'undefined' && Render.cv) Render.resize(); // 画布随网格尺寸重设（无头环境无 Render）
+}
+// 视口驱动 TILE（D16）：可用区域 ÷ 逻辑网格，夹在 [MIN_TILE, MAX_TILE]
+function computeTile(availW, availH) {
+  const t = Math.min(Math.floor(availW / GRID_W), Math.floor(availH / GRID_H), MAX_TILE);
+  return Math.max(MIN_TILE, t);
+}
+const TICK_MS = 150;      // 固定模拟步长
+const MOVE_EVERY = 2;     // 传送带每 2 tick 移动一格
+const PROC_TICKS = 2;     // 加工机处理耗时（tick）
+const DIRV = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // 0上 1右 2下 3左（R 键 +1 顺时针）
+
+const SHAPE_COLOR = { C: '#f2a93b', T: '#58a6ff', S: '#c586ff' };
+const SHAPE_NAME = { C: '圆形', T: '梯形', S: '星形' };
+
+const TOOLS = [
+  { id: 'belt',      name: '传送带', key: '1', glyph: '▥' },
+  { id: 'extractor', name: '采集器', key: '2', glyph: '⛏' },
+  { id: 'cutter',    name: '切割机', key: '3', glyph: '✂' },
+  { id: 'rotator',   name: '旋转机', key: '4', glyph: '↻' },
+  { id: 'merger',    name: '合并机', key: '5', glyph: '⋈' },
+  { id: 'trash',     name: '垃圾桶', key: '6', glyph: '✕' },
+  { id: 'bulldoze',  name: '拆除',   key: '7', glyph: '⌫' },
+];
+const MACHINE_TYPES = ['belt', 'extractor', 'cutter', 'rotator', 'merger', 'trash'];
+const MODES = { tutorial: '教程模式', free: '自由模式', challenge: '挑战模式', daily: '每日挑战' };
+const SPEEDS = [1, 2, 4]; // 可选模拟速度倍率
+
+// ===== 存档 =====
+const SAVE_KEY = 'shape-line-save-v1';
+function loadSave() {
+  const DEF = { unlocked: 1, stars: {}, sound: true, last: 0, blueprints: {}, challenges: {}, challengeV2: {}, challengeV3: {}, achievements: {}, daily: {} };
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (s && typeof s === 'object' && s.unlocked) {
+      const saved = Object.assign(DEF, s);
+      if (!saved.blueprints || typeof saved.blueprints !== 'object') saved.blueprints = {};
+      for (const [id, bp] of Object.entries(saved.blueprints)) {
+        if (!bp || bp.ruleset !== 'trapezoid-v2') continue;
+        const previewId = id + '-v3-preview';
+        if (saved.blueprints[previewId]) continue;
+        try {
+          const migration = Blueprints.importFile(JSON.stringify(bp));
+          if (migration.preview) saved.blueprints[previewId] = {
+            ...migration.preview, id: previewId, name: bp.name + '（迁移预览）',
+            migrationPending: true,
+          };
+        } catch (e) { /* 保留无法验证的旧蓝图原件，供用户导出 */ }
+      }
+      return saved;
+    }
+  } catch (e) { /* file:// 或隐私模式下可能不可用 */ }
+  return DEF;
+}
+function persist() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(G.save)); } catch (e) { /* 忽略 */ }
+}
+
+// ===== 全局状态 =====
+const G = {
+  v2: null,
+  v3: null,
+  mode: 'tutorial', // tutorial | free | challenge | daily
+  levelIndex: 0,
+  grid: [],          // grid[y][x] = cell | null
+  target: null,      // 目标形状（四元数组）
+  budget: {},        // 剩余预算（Infinity = 不限）
+  used: {},          // 当前已放置数量
+  tickCount: 0,
+  delivered: 0,
+  blueprintUsed: false, // 当前教程关是否成功粘贴过蓝图
+  won: false,
+  paused: false,
+  orientationBlocked: false, // 手机竖屏提示期间冻结模拟，不改玩家的暂停状态
+  speed: 1,          // 模拟速度倍率 ∈ SPEEDS（主步长 = TICK_MS / speed）
+  stats: { log: [] }, // 交付时间戳，30 秒滚动窗口算件/分
+  tool: 'belt',
+  toolDir: 1,        // 默认朝右
+  hover: { x: -1, y: -1 },
+  particles: [],
+  hubPulse: 0,
+  clip: null,        // 剪贴板蓝图（框选复制的结果）
+  chalIndex: 0,      // 当前挑战关索引
+  chal: null,        // 挑战运行时状态 { elapsed, done }；非挑战模式为 null
+  chalDef: null,     // 当前挑战定义（挑战=CHALLENGES[i]，每日=dailyDef()）
+  paste: null,       // 粘贴态：正在放置的蓝图（随 R 旋转）
+  selMode: false,    // 框选态开关（B 键进入）
+  sel: null,         // 框选矩形 { x0, y0, x1, y1 }
+  save: loadSave(),
+};
+
+function mkCell(type, x, y, dir) {
+  return { type, x, y, dir: dir || 0, item: null, inA: null, inB: null, proc: null, outA: null, outB: null, cd: 1 };
+}
+
+function demolishCell(x, y) {
+  const c = cellAt(x, y);
+  if (!c || !MACHINE_TYPES.includes(c.type)) return false;
+  if (G.v2 || G.v3) {
+    const shapes = [];
+    for (const slot of ['item', 'inA', 'inB', 'outA', 'outB'])
+      if (c[slot]) shapes.push(c[slot].shape);
+    for (const queue of ['queueA', 'queueB'])
+      for (const it of c[queue] || []) shapes.push(it.shape);
+    if (c.proc) {
+      shapes.push(c.proc.shape);
+      if (c.proc.shapeB) shapes.push(c.proc.shapeB);
+    }
+    if (G.v3) {
+      shapes.push(...(c.autoHalves || []));
+      G.v3.discardedItems = G.v3.discardedItems || [];
+      G.v3.discardReasons = G.v3.discardReasons || [];
+      G.v3.discardedItems.push(...shapes);
+      for (const shape of shapes) G.v3.discardReasons.push({ itemId: shape.itemId, reason: '拆除装置' });
+    } else {
+      G.v2.discardedItems = G.v2.discardedItems || [];
+      G.v2.discardedItems.push(...shapes);
+    }
+  }
+  for (const state of [G.v2, G.v3])
+    if (state && state.selected && state.selected.x === x && state.selected.y === y) state.selected = null;
+  G.grid[y][x] = null;
+  if (G.budget[c.type] !== Infinity) G.budget[c.type]++;
+  G.used[c.type]--;
+  return true;
+}
+
+// ===== 撤销/重做：统一动作栈，一切网格变更经 tryPlace/removeAt 写入 =====
+// 动作组：[{ type:'place'|'remove', x, y, mtype, dir }]；一次拖拽/一次粘贴 = 一组
+const Undo = {
+  stack: [], redo: [], cur: null,
+  begin() { if (!this.cur) this.cur = []; }, // 拖拽/粘贴开始时成组
+  rec(type, x, y, mtype, dir) {
+    const a = { type, x, y, mtype, dir };
+    if(G.v2 || G.v3) { const c=cellAt(x,y); if(c&&c.machineMode) a.machineMode=c.machineMode; if(c&&c.locked) a.locked=true; }
+    if (this.cur) this.cur.push(a);
+    else { this.stack.push([a]); this.trim(); } // 单击 = 单动作组
+  },
+  end() {
+    if (this.cur && this.cur.length) { this.stack.push(this.cur); this.trim(); }
+    this.cur = null;
+  },
+  trim() { if (this.stack.length > 200) this.stack.shift(); this.redo.length = 0; },
+  clear() { this.stack.length = 0; this.redo.length = 0; this.cur = null; },
+  _remove(a) { // 拆掉一格并退还预算
+    demolishCell(a.x, a.y);
+  },
+  _place(a) { // 放回一格并扣预算
+    if (G.grid[a.y][a.x]) return;
+    G.grid[a.y][a.x] = mkCell(a.mtype, a.x, a.y, a.dir);
+    if(a.machineMode) G.grid[a.y][a.x].machineMode=a.machineMode;
+    if(a.locked) G.grid[a.y][a.x].locked=true;
+    if (G.budget[a.mtype] !== Infinity) G.budget[a.mtype]--;
+    G.used[a.mtype]++;
+  },
+  undo() {
+    const g = this.stack.pop();
+    if (!g) return false;
+    for (let i = g.length - 1; i >= 0; i--) { // 反向回退
+      if (g[i].type === 'place') this._remove(g[i]); else this._place(g[i]);
+    }
+    this.redo.push(g);
+    UI.refreshBudget();
+    if (typeof UI.refreshBps === 'function') UI.refreshBps();
+    return true;
+  },
+  redoOp() {
+    const g = this.redo.pop();
+    if (!g) return false;
+    for (const a of g) { if (a.type === 'place') this._place(a); else this._remove(a); }
+    this.stack.push(g);
+    UI.refreshBudget();
+    if (typeof UI.refreshBps === 'function') UI.refreshBps();
+    return true;
+  },
+};
+function mkItem(shape, x, y) {
+  return { shape: shape.slice(), fx: x, fy: y, moveTick: G.tickCount };
+}
+function cellAt(x, y) {
+  return (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) ? null : G.grid[y][x];
+}
+function usedTotal() {
+  let n = 0;
+  for (const k of MACHINE_TYPES) n += G.used[k] || 0;
+  return n;
+}
+// 在途物品数（统计 HUD）：所有机器槽位 + 加工中的物品
+function inTransit() {
+  const SLOTS = ['item', 'inA', 'inB', 'outA', 'outB'];
+  let n = 0;
+  for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+    const c = G.grid[y][x];
+    if (!c) continue;
+    if (G.v2 || G.v3) { n+=(c.queueA||[]).length+(c.queueB||[]).length; }
+    for (const s of SLOTS) if (c[s]) n++;
+    if (c.proc) n++;
+  }
+  return n;
+}
+
+// 粒子（表现层，由渲染帧推进）
+function burst(gx, gy, color, n) {
+  const cx = gx * TILE + TILE / 2, cy = gy * TILE + TILE / 2;
+  for (let i = 0; i < (n || 14); i++) {
+    if (G.particles.length >= 300) break;
+    const a = Math.random() * Math.PI * 2, sp = 0.6 + Math.random() * 2.4;
+    G.particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.2,
+      life: 0.6 + Math.random() * 0.5, color, s: 2 + Math.random() * 2.5,
+    });
+  }
+}
+
+// ===== 关卡装载 =====
+function loadLevel(i) {
+  G.v2 = null;
+  G.v3 = null;
+  i = Math.max(0, Math.min(LEVELS.length - 1, i));
+  const L = LEVELS[i];
+  G.mode = 'tutorial';
+  setGridSize(24, 16, 32); // 教程固定小网格
+  G.levelIndex = i;
+  G.grid = [];
+  for (let y = 0; y < GRID_H; y++) G.grid.push(new Array(GRID_W).fill(null));
+  for (const r of L.resources) G.grid[r.y][r.x] = { type: 'resource', x: r.x, y: r.y, shapeType: r.type };
+  G.grid[L.hub.y][L.hub.x] = mkCell('hub', L.hub.x, L.hub.y, 0);
+  G.target = L.target.slice();
+  G.budget = {};
+  for (const k in L.budget) G.budget[k] = L.budget[k];
+  G.used = {};
+  for (const k of MACHINE_TYPES) G.used[k] = 0;
+  G.tickCount = 0; G.delivered = 0; G.blueprintUsed = false; G.won = false; G.paused = false;
+  G.particles.length = 0; G.hubPulse = 0;
+  G.tool = 'belt'; G.toolDir = 1; G.hover = { x: -1, y: -1 };
+  G.paste = null; G.selMode = false; G.sel = null; // 切关退出粘贴/框选
+  Undo.clear(); // 切关清撤销栈
+  G.save.last = i; persist();
+  UI.refreshLevel(); UI.refreshBudget(); UI.refreshToolbar(); UI.syncPause();
+}
+
+// ===== 模式切换：清理一切跨模式残留状态 =====
+function setMode(mode) {
+  if (mode === G.mode) { // 回到当前局（主菜单 Esc / 再次点击当前模式）
+    UI.hideMenu();
+    if (!G.won) { G.paused = false; UI.syncPause(); }
+    return;
+  }
+  Undo.clear();
+  G.paste = null; G.selMode = false; G.sel = null;
+  G.particles.length = 0;
+  G.stats.log.length = 0;
+  G.chal = null; G.chalDef = null; // 模式切换清挑战态（由目标模式的 loader 重建）
+  if (mode === 'free') loadFree(); // challenges.js
+  else if (mode === 'challenge') loadChallenge(G.save.lastChal || 0);
+  else if (mode === 'daily') loadDaily();
+  else loadLevel(Math.min(G.save.last || 0, G.save.unlocked - 1)); // 内含 G.mode 与网格尺寸复位
+  UI.hideMenu();
+}
+
+// ===== 速度控制 =====
+function setSpeed(s) {
+  if (SPEEDS.indexOf(s) < 0) return;
+  G.speed = s;
+  UI.syncSpeed();
+}
+
+// ===== 过关 =====
+function winLevel() {
+  if (G.mode === 'free') { // 自由模式：交付即庆祝并自动换新目标，产线继续跑
+    AudioFX.win();
+    nextFreeTarget();
+    UI.toast('目标达成！已刷新新目标');
+    return;
+  }
+  if (G.mode === 'challenge' || G.mode === 'daily') { // 挑战/每日：交付达标即结算（时间类约束由 challengeTick 结算）
+    const C = G.chalDef;
+    if (C.need && G.delivered >= C.need) challengeWin();
+    return;
+  }
+  if (G.won) return;
+  G.won = true;
+  const L = LEVELS[G.levelIndex], total = usedTotal();
+  const stars = L.blueprintThreeStar
+    ? (G.blueprintUsed ? 3 : total <= L.par[1] ? 2 : 1)
+    : (total <= L.par[0] ? 3 : total <= L.par[1] ? 2 : 1);
+  const i = G.levelIndex;
+  G.save.stars[i] = Math.max(G.save.stars[i] || 0, stars);
+  G.save.unlocked = Math.max(G.save.unlocked, Math.min(LEVELS.length, i + 2));
+  persist();
+  AudioFX.win();
+  checkAchievements();
+  UI.refreshLevels();
+  setTimeout(() => UI.showWin(stars, total), 700);
+}
+
+// ===== 音效（Web Audio 振荡器合成，无外部资源） =====
+const AudioFX = {
+  ctx: null, gain: null,
+  ensure() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = 0.12;
+      this.gain.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  tone(f, dur, type, delay) {
+    if (!G.save.sound || !this.ctx) return;
+    const t = this.ctx.currentTime + (delay || 0);
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type || 'square';
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.gain);
+    o.start(t); o.stop(t + dur);
+  },
+  place() { this.tone(660, 0.07, 'square'); },
+  remove() { this.tone(220, 0.09, 'square'); },
+  deny() { this.tone(140, 0.12, 'sawtooth'); },
+  deliver() { this.tone(880, 0.08, 'sine'); this.tone(1318, 0.14, 'sine', 0.08); },
+  win() { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.2, 'triangle', i * 0.12)); },
+};
+
+// ===== 主循环 =====
+let _acc = 0, _last = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (!_last) _last = now;
+  let dt = now - _last;
+  _last = now;
+  if (dt > 250) dt = 250;
+  if (!G.paused && !G.won && !G.orientationBlocked) {
+    _acc += dt;
+    const step = TICK_MS / G.speed; // 速度倍率：步长缩短 = 模拟加速
+    let guard = 0;
+    while (_acc >= step && guard++ < 8) { Sim.tick(); _acc -= step; }
+    G._alpha = _acc / step;
+    if (G.chal && !G.chal.done && (!G.v3 || G.v3.running) &&
+        !(G.chalDef && G.chalDef.id === 'C4' && !G.chal.started)) { // 挑战/每日：供料后才计时
+      G.chal.elapsed += dt / 1000;
+      challengeTick();
+    }
+  }
+  if (G.orientationBlocked) { _acc = 0; G._alpha = 0; }
+  Render.draw(G._alpha || 0);
+}
+window.addEventListener('load', () => {
+  Render.init();
+  Input.init();
+  loadLevel(Math.min(G.save.last || 0, G.save.unlocked - 1));
+  UI.showMenu(); // 启动先出主菜单，游戏在后台暂停
+  requestAnimationFrame(frame);
+});
+
+</script>
+<script>
+'use strict';
+/* sim.js — 固定 tick 模拟：形状变换、物品移动（先算后动的双缓冲）、机器加工、枢纽判定
+ * 只被 core.js 的 tick 调用，不响应输入、不做渲染。
+ */
+
+// ===== 形状变换（象限约定：0=右上 1=右下 2=左下 3=左上，顺时针） =====
+// 切割（垂直）：返回 [右半, 左半]
+function cutV(s) { return [[s[0], s[1], null, null], [null, null, s[2], s[3]]]; }
+// 顺时针旋转 90°：原 0 号位（右上）落到 1 号位（右下）
+function rotCW(s) { return [s[3], s[0], s[1], s[2]]; }
+// 合并（并集）：底 + 补，空象限被补位件填充
+function mergeShapes(b, f) { return b.map((q, i) => (q == null ? f[i] : q)); }
+function shapeEq(a, b) { return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3]; }
+
+// 断言自测：加载即跑，控制台全绿才算通过
+console.assert(JSON.stringify(cutV(['C', 'C', 'C', 'C'])[0]) === JSON.stringify(['C', 'C', null, null]), 'cutV 应取右半');
+console.assert(JSON.stringify(cutV(['C', 'C', 'C', 'C'])[1]) === JSON.stringify([null, null, 'C', 'C']), 'cutV 应取左半');
+console.assert(JSON.stringify(rotCW(['C', 'C', null, null])) === JSON.stringify([null, 'C', 'C', null]), 'rotCW 右半圆→下半圆');
+console.assert(JSON.stringify(rotCW(rotCW(['S', 'S', null, null]))) === JSON.stringify([null, null, 'S', 'S']), 'rotCW×2 右半星→左半星');
+console.assert(JSON.stringify(mergeShapes(['C', 'C', null, null], [null, null, 'T', 'T'])) === JSON.stringify(['C', 'C', 'T', 'T']), 'merge 右半圆+左半方→右圆左方');
+
+const Sim = {
+  tick() {
+    if (G.v3) { V3Runtime.tick(); return; }
+    if (G.v2) { V2Runtime.tick(); return; }
+    if (G.mode === 'challenge' && G.chalDef && G.chalDef.id === 'C4' && G.chal && !G.chal.started) return;
+    G.tickCount++;
+    if (G.tickCount % MOVE_EVERY === 0) this.movement();
+    this.machines();
+  },
+
+  // ---- 移动阶段：统一收集搬运者 → 递归解算（先算）→ 同步提交（后动） ----
+  movement() {
+    const movers = [];
+    for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+      const c = G.grid[y][x];
+      if (!c) continue;
+      if ((c.type === 'belt' || c.type === 'extractor') && c.item) movers.push({ x, y, slot: 'item' });
+      else if (c.type === 'cutter') {
+        if (c.outA) movers.push({ x, y, slot: 'outA' });
+        if (c.outB) movers.push({ x, y, slot: 'outB' });
+      } else if ((c.type === 'rotator' || c.type === 'merger') && c.outA) movers.push({ x, y, slot: 'outA' });
+    }
+    const state = new Map(), reserved = new Set();
+    for (const m of movers) this.resolve(m.x, m.y, m.slot, state, reserved);
+    for (const m of movers) {
+      if (state.get(m.x + ',' + m.y + ',' + m.slot) !== 2) continue;
+      const src = G.grid[m.y][m.x], it = src[m.slot];
+      if (!it) continue;
+      src[m.slot] = null;
+      const tp = this.targetOf(m.x, m.y, m.slot), t = cellAt(tp.x, tp.y);
+      const acc = t ? this.accepts(t, m.x, m.y, it.shape) : false;
+      if (acc === 'consume') {
+        if (t.type === 'hub') this.deliver(it, t);
+        else burst(tp.x, tp.y, '#6a7286', 5); // 垃圾桶吞掉
+      } else if (acc) {
+        it.fx = m.x; it.fy = m.y; it.moveTick = G.tickCount;
+        t[acc] = it;
+      } else {
+        src[m.slot] = it; // 防御：解算与提交之间状态不应变化
+      }
+    }
+  },
+
+  // 搬运者的目标格：outB（切割机左半）→ 右侧面；其余 → 正面
+  targetOf(x, y, slot) {
+    const c = G.grid[y][x];
+    const d = (slot === 'outB') ? DIRV[(c.dir + 1) % 4] : DIRV[c.dir];
+    return { x: x + d[0], y: y + d[1] };
+  },
+
+  // 目标格 t 是否接受来自 (sx,sy) 的物品；返回槽位名 / 'consume' / false
+  accepts(t, sx, sy, shape) {
+    const d = DIRV[t.dir];
+    switch (t.type) {
+      case 'belt': // 不接受来自自己正面的倒灌
+        return (sx === t.x + d[0] && sy === t.y + d[1]) ? false : 'item';
+      case 'cutter':
+      case 'rotator': // 只从背面进料
+        return (sx === t.x - d[0] && sy === t.y - d[1]) ? 'inA' : false;
+      case 'merger': { // 背面=底，右侧=补
+        const r = DIRV[(t.dir + 1) % 4];
+        if (sx === t.x - d[0] && sy === t.y - d[1]) return 'inA';
+        if (sx === t.x + r[0] && sy === t.y + r[1]) return 'inB';
+        return false;
+      }
+      case 'trash':
+        return 'consume';
+      case 'hub': // 枢纽只接收目标形状，其余拒之门外
+        return shapeEq(shape, G.target) ? 'consume' : false;
+      default:
+        return false;
+    }
+  },
+
+  // 递归解算：目标槽位为空则占用；被物品占着则看对方能否让出；成环即堵转
+  resolve(x, y, slot, state, reserved) {
+    const key = x + ',' + y + ',' + slot, st = state.get(key);
+    if (st === 2) return true;
+    if (st === 1 || st === 3) return false; // 环（互等）或已判定不可动
+    state.set(key, 1);
+    const c = G.grid[y][x], it = c[slot];
+    let ok = false;
+    if (it) {
+      const tp = this.targetOf(x, y, slot), t = cellAt(tp.x, tp.y);
+      const acc = t ? this.accepts(t, x, y, it.shape) : false;
+      if (acc === 'consume') {
+        ok = true;
+      } else if (acc) {
+        const skey = tp.x + ',' + tp.y + ',' + acc;
+        if (!reserved.has(skey)) {
+          if (!t[acc]) { reserved.add(skey); ok = true; }
+          else if (acc === 'item' && this.resolve(tp.x, tp.y, 'item', state, reserved)) { reserved.add(skey); ok = true; }
+        }
+      }
+    }
+    state.set(key, ok ? 2 : 3);
+    return ok;
+  },
+
+  // ---- 机器阶段：产出与加工 ----
+  machines() {
+    for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+      const c = G.grid[y][x];
+      if (!c) continue;
+      switch (c.type) {
+        case 'extractor': // 紧邻资源节点，每 2 tick 出一个该节点的基础形状
+          if (!c.item) {
+            if (c.cd > 0) c.cd--;
+            if (c.cd <= 0) {
+              const rt = this.adjResource(c);
+              if (rt) {
+                c.item = { shape: [rt, rt, rt, rt], fx: c.x, fy: c.y, moveTick: G.tickCount };
+                c.cd = MOVE_EVERY;
+              }
+            }
+          }
+          break;
+        case 'cutter': // 正面输出右半，右侧面输出左半；两侧排空才能继续切
+          if (c.proc) {
+            if (--c.proc.t <= 0) {
+              const h = cutV(c.proc.shape);
+              c.outA = { shape: h[0], fx: c.x, fy: c.y, moveTick: G.tickCount };
+              c.outB = { shape: h[1], fx: c.x, fy: c.y, moveTick: G.tickCount };
+              c.proc = null;
+            }
+          } else if (c.inA && !c.outA && !c.outB) {
+            c.proc = { shape: c.inA.shape, t: PROC_TICKS };
+            c.inA = null;
+          }
+          break;
+        case 'rotator':
+          if (c.proc) {
+            if (--c.proc.t <= 0) {
+              c.outA = { shape: rotCW(c.proc.shape), fx: c.x, fy: c.y, moveTick: G.tickCount };
+              c.proc = null;
+            }
+          } else if (c.inA && !c.outA) {
+            c.proc = { shape: c.inA.shape, t: PROC_TICKS };
+            c.inA = null;
+          }
+          break;
+        case 'merger': // 底 + 补齐备才开工
+          if (c.proc) {
+            if (--c.proc.t <= 0) {
+              c.outA = { shape: c.proc.shape, fx: c.x, fy: c.y, moveTick: G.tickCount };
+              c.proc = null;
+            }
+          } else if (c.inA && c.inB && !c.outA) {
+            c.proc = { shape: mergeShapes(c.inA.shape, c.inB.shape), t: PROC_TICKS };
+            c.inA = null; c.inB = null;
+          }
+          break;
+      }
+    }
+  },
+
+  adjResource(c) {
+    for (const d of DIRV) {
+      const n = cellAt(c.x + d[0], c.y + d[1]);
+      if (n && n.type === 'resource') return n.shapeType;
+    }
+    return null;
+  },
+
+  deliver(it, hub) {
+    G.delivered++;
+    G.stats.log.push(performance.now()); // 统计 HUD：30 秒滚动窗口
+    G.hubPulse = 1;
+    const cols = it.shape.filter(Boolean).map(s => SHAPE_COLOR[s]);
+    for (let i = 0; i < 20; i++) burst(hub.x, hub.y, cols.length ? cols[i % cols.length] : '#f2a93b', 1);
+    AudioFX.deliver();
+    winLevel();
+  },
+};
+
+</script>
+<script>
+'use strict';
+/* render.js — Canvas 渲染（D15 全屏 / D16 动态 TILE / D17 工业风美术）
+ * 结构：全屏地板（渐变+扫描线+金属网格，离屏缓存） → 机器静态底座（离屏缓存）
+ *       → 动态覆盖层（钻头/激光/能量环等，渲染帧推进） → 物品 → 粒子 → 全息预览。
+ * 坐标约定：draw() 先把画布变换到「网格本地坐标系」（原点 ox,oy + dpr 缩放），
+ * 之后一切绘制只用格子数 × TILE；像素入口统一为 tilePx()/gridToPx()（5.4）。
+ * 只读游戏状态；粒子/回弹/脉冲/光环属表现层状态，全部以 performance.now() 推进。
+ */
+
+const Render = {
+  cv: null, ctx: null, pctx: null, dpr: 1, _fxLast: 0,
+  cssW: 0, cssH: 0,      // 画布 CSS 尺寸：以实际可见视口为准
+  ox: 0, oy: 0,          // 网格原点（画布本地 CSS px）
+  u: 1,                  // 美术细节缩放因子 = TILE/32（全部造型按 32px 基准设计）
+  _floor: null,          // 静态地板离屏缓存（含背景与网格线，resize 时重建）
+  _bases: {},            // 机器静态底座缓存 key=type:dir[:shapeType:x:y] → 离屏 canvas
+  _anims: new Map(),     // 放置压缩回弹：'x,y' → t0
+  _prevOcc: new Map(),   // 上一帧机器占用快照 'x,y' → 是否加工中（检测放置/拆除/加工完成）
+  _lastTick: 0,          // 检关卡切换（tickCount 回卷时清空表现层快照）
+  _rings: [],            // 交付冲击波环 { x, y, t0 }
+  _hubPulsePrev: 0,
+  lowFx: false,          // 性能降级开关：关扫描线/皮带纹理滚动/环境粒子（风险6 对策）
+  _fpsAcc: 0, _fpsN: 0, _fpsChecked: false,
+
+  init() {
+    this.cv = document.getElementById('game');
+    this.resize();
+    const pv = document.getElementById('target-canvas');
+    pv.width = 48 * this.dpr; pv.height = 48 * this.dpr;
+    this.pctx = pv.getContext('2d');
+    this.pctx.scale(this.dpr, this.dpr);
+  },
+
+  // ===== 像素统一入口（5.4）：渲染层所有像素计算经此，禁止直接乘 TILE =====
+  tilePx() { return TILE; },
+  gridToPx(gx, gy) { return { x: this.ox + gx * TILE, y: this.oy + gy * TILE }; },
+
+  // 全屏自适应（D15）+ 视口驱动 TILE（D16）：画布占满视口，网格在 UI 安全区内居中
+  resize() {
+    if (!this.cv) return;
+    const viewport = window.visualViewport;
+    const vw = viewport && viewport.width || window.innerWidth || 1280;
+    const vh = viewport && viewport.height || window.innerHeight || 720;
+    this.cssW = Math.max(1, Math.floor(vw));
+    this.cssH = Math.max(1, Math.floor(vh));
+    this.dpr = window.devicePixelRatio || 1;
+    this.cv.style.width = this.cssW + 'px';
+    this.cv.style.height = this.cssH + 'px';
+    this.cv.width = Math.max(1, Math.round(this.cssW * this.dpr));
+    this.cv.height = Math.max(1, Math.round(this.cssH * this.dpr));
+    this.ctx = this.cv.getContext('2d');
+    // 顶栏、托盘高度实时测量；窄屏布局变化时仍给整张网格留出空间。
+    const topEl = document.getElementById('topbar'), trayEl = document.getElementById('tray');
+    const topH = (topEl && topEl.offsetHeight) || 48;
+    const botH = (trayEl && trayEl.offsetHeight) || 56;
+    const M = 12; // 安全边距（宪法10：UI 不遮挡核心区域）
+    const ins = { l: M, r: M, t: topH + 8, b: botH + 8 };
+    const availW = Math.max(1, this.cssW - ins.l - ins.r);
+    const availH = Math.max(1, this.cssH - ins.t - ins.b);
+    TILE = computeTile(availW, availH); // 写回全局活值（模式切换时 setGridSize 也会触发本函数）
+    this.u = TILE / 32;
+    this.ox = ins.l + Math.max(0, (availW - GRID_W * TILE) / 2);
+    this.oy = ins.t + Math.max(0, (availH - GRID_H * TILE) / 2);
+    this._bases = {};
+    this._buildFloor();
+  },
+
+  // ===== 静态地板：径向暗角背景 + 扫描线 + 金属地板缝网格 + 交点铆钉（整屏离屏缓存） =====
+  _buildFloor() {
+    const w = this.cssW, h = this.cssH, u = this.u;
+    const f = document.createElement('canvas');
+    f.width = Math.max(1, Math.round(w * this.dpr));
+    f.height = Math.max(1, Math.round(h * this.dpr));
+    const c = f.getContext('2d');
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // 背景：中心微亮、四周压暗的径向渐变
+    let g = c.createRadialGradient(w / 2, h * 0.42, Math.min(w, h) * 0.08, w / 2, h / 2, Math.max(w, h) * 0.75);
+    g.addColorStop(0, '#1a2133'); g.addColorStop(0.55, '#121625'); g.addColorStop(1, '#090b12');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    // 扫描线微纹理（低透明度，不抢主体；降级时跳过）
+    if (!this.lowFx) {
+      c.fillStyle = 'rgba(255,255,255,.014)';
+      for (let y = 0; y < h; y += 4) c.fillRect(0, y, w, 1);
+    }
+    // 网格地板面板：比网格大一圈的金属台面
+    const gx = this.ox, gy = this.oy, gw = GRID_W * TILE, gh = GRID_H * TILE, pad = 7 * u;
+    g = c.createLinearGradient(gx, gy - pad, gx, gy + gh + pad);
+    g.addColorStop(0, '#1b2133'); g.addColorStop(1, '#131724');
+    c.fillStyle = g;
+    this.rrect(c, gx - pad, gy - pad, gw + pad * 2, gh + pad * 2, 10 * u); c.fill();
+    c.strokeStyle = '#2c3550'; c.lineWidth = 1.5;
+    this.rrect(c, gx - pad, gy - pad, gw + pad * 2, gh + pad * 2, 10 * u); c.stroke();
+    // 地板缝：深色凹槽 + 下侧 1px 微高光，营造金属板拼缝
+    c.lineWidth = 1;
+    for (let x = 1; x < GRID_W; x++) {
+      const px = gx + x * TILE;
+      c.strokeStyle = 'rgba(8,10,16,.7)';
+      c.beginPath(); c.moveTo(px - 0.5, gy); c.lineTo(px - 0.5, gy + gh); c.stroke();
+      c.strokeStyle = 'rgba(140,160,210,.05)';
+      c.beginPath(); c.moveTo(px + 0.5, gy); c.lineTo(px + 0.5, gy + gh); c.stroke();
+    }
+    for (let y = 1; y < GRID_H; y++) {
+      const py = gy + y * TILE;
+      c.strokeStyle = 'rgba(8,10,16,.7)';
+      c.beginPath(); c.moveTo(gx, py - 0.5); c.lineTo(gx + gw, py - 0.5); c.stroke();
+      c.strokeStyle = 'rgba(140,160,210,.05)';
+      c.beginPath(); c.moveTo(gx, py + 0.5); c.lineTo(gx + gw, py + 0.5); c.stroke();
+    }
+    // 交点铆钉
+    if (!this.lowFx) {
+      c.fillStyle = 'rgba(150,170,220,.09)';
+      for (let x = 0; x <= GRID_W; x++) for (let y = 0; y <= GRID_H; y++) {
+        c.beginPath(); c.arc(gx + x * TILE, gy + y * TILE, Math.max(0.8, 1.1 * u), 0, 7); c.fill();
+      }
+    }
+    this._floor = f;
+  },
+
+  drawPreview(shape) {
+    const c = this.pctx;
+    c.clearRect(0, 0, 48, 48);
+    this.shapeIcon(c, shape, 24, 24, 19);
+  },
+
+  draw(alpha) {
+    const ctx = this.ctx, now = performance.now();
+    let fdt = (now - this._fxLast) / 1000;
+    this._fxLast = now;
+    if (!(fdt > 0) || fdt > 0.1) fdt = 0.016;
+    this._fpsTrack(fdt);
+    if (G.tickCount < this._lastTick) { // 切关/重开：清空表现层快照，避免旧格爆碎片
+      this._prevOcc.clear(); this._anims.clear(); this._rings.length = 0;
+    }
+    this._lastTick = G.tickCount;
+
+    // 全屏地板（静态缓存整屏贴回）
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (this._floor) ctx.drawImage(this._floor, 0, 0, this.cssW, this.cssH);
+
+    // 进入网格本地坐标系（原点 = 网格左上角）
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, this.ox * this.dpr, this.oy * this.dpr);
+
+    this._diffGrid(now); // 放置回弹 / 拆除碎片 / 加工闪光的事件检测（表现层）
+
+    for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+      const c = G.grid[y][x];
+      if (c && c.type === 'resource') this.resource(ctx, c, now);
+    }
+    this.guideLayer(ctx, now); // 教学引导幽灵（仅教程模式，垫在实机器下层）
+    for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+      const c = G.grid[y][x];
+      if (!c || c.type === 'resource') continue;
+      this.machine(ctx, c, alpha, now);
+    }
+    this.items(ctx, alpha);
+    this.fx(ctx, fdt);
+    this.rings(ctx, now);
+    this.selRect(ctx);
+    if (G.paste) this.bpGhost(ctx); else this.ghost(ctx, now);
+    if (G.v2 || G.v3) this.v2Hover(ctx);
+
+    if (G.paused && !G.won) { // 全屏暂停遮罩
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      ctx.fillStyle = 'rgba(10,12,20,.55)';
+      ctx.fillRect(0, 0, this.cssW, this.cssH);
+      ctx.fillStyle = '#dbe2f1';
+      ctx.font = '600 22px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('已暂停 · 按空格继续', this.cssW / 2, this.cssH / 2);
+    }
+  },
+
+  // 简单帧率自检：前 180 帧均值超 22ms 则自动降级（关扫描线/纹理滚动/环境粒子）
+  _fpsTrack(fdt) {
+    if (this._fpsChecked) return;
+    this._fpsAcc += fdt; this._fpsN++;
+    if (this._fpsN >= 180) {
+      this._fpsChecked = true;
+      if (this._fpsAcc / this._fpsN > 0.022) { this.lowFx = true; this._buildFloor(); }
+    }
+  },
+
+  // 占用快照差分：新机器 → 回弹+尘土；消失 → 碎片飞溅；加工结束 → 小闪光（全部表现层，不回写状态）
+  _diffGrid(now) {
+    const cur = new Map();
+    for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+      const c = G.grid[y][x];
+      if (!c || c.type === 'resource') continue;
+      cur.set(x + ',' + y, !!c.proc);
+    }
+    for (const [k, proc] of cur) {
+      const coma = k.indexOf(','), x = +k.slice(0, coma), y = +k.slice(coma + 1);
+      if (!this._prevOcc.has(k)) {
+        this._anims.set(k, now);
+        if (!this.lowFx && ctx1()) {
+          const isBelt = G.grid[y][x].type === 'belt';
+          burst(x, y, '#8a93a8', isBelt ? 2 : 6); // 尘土
+        }
+      } else if (this._prevOcc.get(k) && !proc && !this.lowFx) {
+        burst(x, y, '#d8f7dc', 3); // 加工完成闪光
+      }
+    }
+    for (const k of this._prevOcc.keys()) {
+      if (!cur.has(k)) {
+        const coma = k.indexOf(','), x = +k.slice(0, coma), y = +k.slice(coma + 1);
+        burst(x, y, '#6a7286', this.lowFx ? 4 : 10); // 拆除碎片
+        this._anims.delete(k);
+      }
+    }
+    this._prevOcc = cur;
+    function ctx1() { return true; } // 占位：粒子生成与全局 Alpha 无关（幽灵不触发，因其不在网格中）
+  },
+
+  // 教学引导：把本关参考解画成半透明幽灵，玩家放对位置后幽灵被实机覆盖
+  guideLayer(ctx, now) {
+    if (G.v2) {
+      if (!G.v2.showGuide || !G.v2.def || !G.v2.def.guide) return;
+      ctx.save(); ctx.globalAlpha = 0.2;
+      for (const g of G.v2.def.guide) {
+        if (G.grid[g.y] && G.grid[g.y][g.x]) continue;
+        this.machine(ctx, { type: g.type, x: g.x, y: g.y, dir: g.dir, machineMode: g.machineMode }, 0, now);
+      }
+      ctx.restore();
+      return;
+    }
+    if (G.mode !== 'tutorial') return;
+    const g = LEVELS[G.levelIndex] && LEVELS[G.levelIndex].guide;
+    if (!g) return;
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    for (const [type, x, y, dir] of g) {
+      if (G.grid[y] && G.grid[y][x]) continue; // 已放置（任意东西）则不显示
+      this.machine(ctx, { type, x, y, dir }, 0, now);
+    }
+    ctx.restore();
+  },
+
+  // ===== 机器静态底座：离屏缓存（TILE 变化即随 resize 重建） =====
+  _base(c) {
+    const key = c.type === 'resource'
+      ? 'res:' + (c.shapeType && c.shapeType.kind === 'trapezoid-v2' ?
+        (c.shapeType.units || []).map(v => v.resource).join('') : c.shapeType) + ':' + c.x + ',' + c.y // 矿石散布按坐标定死，不闪烁
+      : c.type + ':' + (c.dir || 0);
+    let b = this._bases[key];
+    if (!b) { b = this._paintBase(c); this._bases[key] = b; }
+    return b;
+  },
+
+  // 在 0..TILE 本地坐标内绘制静态部分；动态部分由 machine()/resource() 的覆盖层画
+  _paintBase(c) {
+    const T = TILE, u = this.u, T2 = T / 2;
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(T * this.dpr));
+    cv.height = Math.max(1, Math.round(T * this.dpr));
+    const g = cv.getContext('2d');
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    const plate = (c0, c1, edge) => { // 通用金属底盘：纵向渐变圆角板 + 内缘高光
+      const lg = g.createLinearGradient(0, 2 * u, 0, T - 2 * u);
+      lg.addColorStop(0, c0); lg.addColorStop(1, c1);
+      g.fillStyle = lg;
+      this.rrect(g, 1.5 * u, 1.5 * u, T - 3 * u, T - 3 * u, 5 * u); g.fill();
+      g.strokeStyle = edge || 'rgba(8,10,16,.85)'; g.lineWidth = Math.max(1, u);
+      this.rrect(g, 2 * u, 2 * u, T - 4 * u, T - 4 * u, 4.5 * u); g.stroke();
+    };
+    const rivets = (inset, color) => { // 四角铆钉
+      g.fillStyle = color;
+      for (const [rx, ry] of [[inset, inset], [T - inset, inset], [inset, T - inset], [T - inset, T - inset]]) {
+        g.beginPath(); g.arc(rx, ry, 1.3 * u, 0, 7); g.fill();
+      }
+    };
+    switch (c.type) {
+      case 'belt': {
+        plate('#212840', '#151a29');
+        g.save(); this._rot(g, c.dir, T); // 统一画「流向朝右」原型
+        // 皮带带面：垂直流向的渐变压出两侧暗边
+        const bg = g.createLinearGradient(0, T2 - T * 0.27, 0, T2 + T * 0.27);
+        bg.addColorStop(0, '#0d1120'); bg.addColorStop(0.5, '#1d2438'); bg.addColorStop(1, '#0d1120');
+        g.fillStyle = bg;
+        g.fillRect(2 * u, T2 - T * 0.27, T - 4 * u, T * 0.54);
+        // 金属侧轨（包边）
+        const rail = g.createLinearGradient(0, 0, 0, 4 * u);
+        rail.addColorStop(0, '#4a5578'); rail.addColorStop(1, '#262e45');
+        g.fillStyle = rail;
+        g.fillRect(2 * u, T2 - T * 0.27 - 3.4 * u, T - 4 * u, 3.4 * u);
+        g.fillRect(2 * u, T2 + T * 0.27, T - 4 * u, 3.4 * u);
+        // 侧轨铆钉
+        g.fillStyle = '#5d688a';
+        for (const fx of [0.22, 0.5, 0.78]) {
+          g.beginPath(); g.arc(T * fx, T2 - T * 0.27 - 1.7 * u, 1.1 * u, 0, 7); g.fill();
+          g.beginPath(); g.arc(T * fx, T2 + T * 0.27 + 1.7 * u, 1.1 * u, 0, 7); g.fill();
+        }
+        g.restore();
+        break;
+      }
+      case 'extractor': { // 采矿钻机：多层基座
+        plate('#2d2544', '#1e1930');
+        g.fillStyle = '#171224'; // 中层环座
+        g.beginPath(); g.arc(T2, T2, T * 0.32, 0, 7); g.fill();
+        g.strokeStyle = '#463a66'; g.lineWidth = 1.6 * u;
+        g.beginPath(); g.arc(T2, T2, T * 0.32, 0, 7); g.stroke();
+        g.fillStyle = '#241d3a'; // 上层钻台
+        g.beginPath(); g.arc(T2, T2, T * 0.22, 0, 7); g.fill();
+        g.strokeStyle = '#584a7d'; g.lineWidth = u;
+        g.beginPath(); g.arc(T2, T2, T * 0.22, 0, 7); g.stroke();
+        rivets(5 * u, '#4c4170');
+        break;
+      }
+      case 'cutter': { // 激光切割机：金属外壳 + 安全警示条纹
+        plate('#352230', '#231722');
+        g.save(); this._rot(g, c.dir, T);
+        // 上下沿警示条纹（黄黑斜纹）
+        for (const sy of [3.4 * u, T - 3.4 * u - 3.2 * u]) {
+          g.save();
+          g.beginPath(); g.rect(3 * u, sy, T - 6 * u, 3.2 * u); g.clip();
+          g.fillStyle = '#d9a92e'; g.fillRect(3 * u, sy, T - 6 * u, 3.2 * u);
+          g.fillStyle = '#191920';
+          for (let sx = -4 * u; sx < T; sx += 7 * u) {
+            g.beginPath();
+            g.moveTo(sx, sy + 3.2 * u); g.lineTo(sx + 3.2 * u, sy);
+            g.lineTo(sx + 6.4 * u, sy); g.lineTo(sx + 3.2 * u, sy + 3.2 * u);
+            g.closePath(); g.fill();
+          }
+          g.restore();
+        }
+        // 激光刀缝（竖向，垂直于流向）
+        g.fillStyle = '#0b070c';
+        g.fillRect(T2 - 2 * u, T * 0.2, 4 * u, T * 0.6);
+        g.restore();
+        rivets(5 * u, '#5e3a48');
+        break;
+      }
+      case 'rotator': { // 机械转盘：齿轮底座
+        plate('#1f332b', '#15231d');
+        g.fillStyle = '#27443a'; // 齿轮：八齿外圈
+        for (let i = 0; i < 8; i++) {
+          g.save();
+          g.translate(T2, T2); g.rotate(i * Math.PI / 4);
+          g.fillRect(-2.4 * u, -T * 0.36, 4.8 * u, 4.4 * u);
+          g.restore();
+        }
+        g.beginPath(); g.arc(T2, T2, T * 0.34, 0, 7); g.fill();
+        g.strokeStyle = '#101b15'; g.lineWidth = u;
+        g.beginPath(); g.arc(T2, T2, T * 0.34, 0, 7); g.stroke();
+        g.fillStyle = '#1a2c24'; // 内平台
+        g.beginPath(); g.arc(T2, T2, T * 0.24, 0, 7); g.fill();
+        g.strokeStyle = '#39614f'; g.lineWidth = u;
+        g.beginPath(); g.arc(T2, T2, T * 0.24, 0, 7); g.stroke();
+        break;
+      }
+      case 'merger': { // 冲压融合机：外壳 + 双进料槽（背面/右侧）
+        plate('#302c18', '#211e10');
+        g.save(); this._rot(g, c.dir, T);
+        g.fillStyle = '#0f0d06'; // 背面进料槽（本地左）与右侧进料槽（本地…旋转后朝上？约定：右侧=本地 -y）
+        g.fillRect(1.5 * u, T2 - 5 * u, 5 * u, 10 * u);        // 背面口
+        g.fillRect(T2 - 5 * u, 1.5 * u, 10 * u, 5 * u);        // 右侧口（本地 -y = 流向右侧）
+        g.restore();
+        const cg = g.createRadialGradient(T2, T2, 1, T2, T2, T * 0.24); // 融合腔
+        cg.addColorStop(0, '#4a421e'); cg.addColorStop(1, '#26220f');
+        g.fillStyle = cg;
+        g.beginPath(); g.arc(T2, T2, T * 0.24, 0, 7); g.fill();
+        g.strokeStyle = '#8a7428'; g.lineWidth = 1.4 * u;
+        g.beginPath(); g.arc(T2, T2, T * 0.24, 0, 7); g.stroke();
+        rivets(5 * u, '#6a5c26');
+        break;
+      }
+      case 'trash': { // 工业粉碎机：粉碎齿 + 深口
+        plate('#30232a', '#1f161c');
+        const mg = g.createRadialGradient(T2, T2, 1, T2, T2, T * 0.3); // 粉碎深口
+        mg.addColorStop(0, '#070409'); mg.addColorStop(1, '#1c1016');
+        g.fillStyle = mg;
+        g.beginPath(); g.arc(T2, T2, T * 0.3, 0, 7); g.fill();
+        g.strokeStyle = '#53282f'; g.lineWidth = 1.6 * u;
+        g.beginPath(); g.arc(T2, T2, T * 0.3, 0, 7); g.stroke();
+        g.fillStyle = '#6b3640'; // 上下两排粉碎齿，相对咬合
+        for (let i = 0; i < 5; i++) {
+          const tx = T * (0.18 + i * 0.16);
+          g.beginPath(); g.moveTo(tx - 3 * u, T2 - T * 0.28); g.lineTo(tx + 3 * u, T2 - T * 0.28); g.lineTo(tx, T2 - T * 0.13); g.closePath(); g.fill();
+          g.beginPath(); g.moveTo(tx - 3 * u, T2 + T * 0.28); g.lineTo(tx + 3 * u, T2 + T * 0.28); g.lineTo(tx, T2 + T * 0.13); g.closePath(); g.fill();
+        }
+        break;
+      }
+      case 'hub': { // 中央控制室：多层基座
+        plate('#3d3113', '#28200d', 'rgba(242,169,59,.5)');
+        g.strokeStyle = '#8a6a1f'; g.lineWidth = 1.8 * u;
+        g.beginPath(); g.arc(T2, T2, T * 0.37, 0, 7); g.stroke();
+        const hg = g.createRadialGradient(T2, T2, 1, T2, T2, T * 0.3);
+        hg.addColorStop(0, '#4a3a16'); hg.addColorStop(1, '#2c240e');
+        g.fillStyle = hg;
+        g.beginPath(); g.arc(T2, T2, T * 0.3, 0, 7); g.fill();
+        g.strokeStyle = '#f2a93b'; g.lineWidth = u;
+        g.beginPath(); g.arc(T2, T2, T * 0.3, 0, 7); g.stroke();
+        rivets(4.6 * u, '#8a6a1f');
+        break;
+      }
+      case 'resource': { // 矿脉矿床：立体岩床 + 散落矿石（按坐标确定性散布）
+        const v2res = c.shapeType && c.shapeType.kind === 'trapezoid-v2';
+        const col = v2res ? '#82b9de' : SHAPE_COLOR[c.shapeType];
+        g.fillStyle = '#12161f'; // 岩床底
+        g.beginPath(); g.arc(T2, T2, T * 0.46, 0, 7); g.fill();
+        g.fillStyle = '#1a2130'; // 岩块隆起
+        const seed = c.x * 31 + c.y * 17;
+        for (let i = 0; i < 3; i++) {
+          const a = (seed + i * 2.4) % 6.28, rr = T * (0.16 + ((seed + i * 7) % 10) / 60);
+          g.beginPath(); g.arc(T2 + Math.cos(a) * T * 0.16, T2 + Math.sin(a) * T * 0.16, rr, 0, 7); g.fill();
+        }
+        g.strokeStyle = col + '44'; g.lineWidth = 1.4 * u;
+        g.beginPath(); g.arc(T2, T2, T * 0.42, 0, 7); g.stroke();
+        for (let i = 0; i < 4; i++) { // 散落小矿石
+          const a = (seed + i * 1.9) % 6.28, rr = T * (0.3 + ((seed + i * 5) % 8) / 40);
+          this.shapeIcon(g, v2res ? c.shapeType : [c.shapeType, c.shapeType, c.shapeType, c.shapeType],
+            T2 + Math.cos(a) * rr, T2 + Math.sin(a) * rr, 2.6 * u);
+        }
+        this.shapeIcon(g, v2res ? c.shapeType : [c.shapeType, c.shapeType, c.shapeType, c.shapeType], T2, T2, 8 * u); // 主矿
+        break;
+      }
+    }
+    return cv;
+  },
+
+  resource(ctx, c, now) {
+    const T = TILE, u = this.u, x = c.x * T, y = c.y * T, cx = x + T / 2, cy = y + T / 2;
+    ctx.drawImage(this._base(c), x, y, T, T);
+    const col = c.shapeType && c.shapeType.kind === 'trapezoid-v2' ? '#82b9de' : SHAPE_COLOR[c.shapeType];
+    // 脉动光晕
+    ctx.strokeStyle = col;
+    ctx.globalAlpha = 0.3 + 0.18 * Math.sin(now / 420 + c.x);
+    ctx.lineWidth = 2 * u;
+    ctx.beginPath(); ctx.arc(cx, cy, T * 0.44 + Math.sin(now / 400) * 2 * u, 0, 7); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // 矿脉微光闪点（无状态，按相位算）
+    if (!this.lowFx) {
+      for (let i = 0; i < 2; i++) {
+        const ph = (now / 900 + i * 0.5 + c.x * 0.13 + c.y * 0.07) % 1;
+        const a = (c.x * 31 + c.y * 17 + i * 2.4) % 6.28;
+        ctx.globalAlpha = Math.max(0, 0.5 - Math.abs(ph - 0.5)) * 1.2;
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(cx + Math.cos(a) * T * 0.3, cy + Math.sin(a) * T * 0.3, 1.4 * u, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+  },
+
+  machine(ctx, c, alpha, now) {
+    const T = TILE, u = this.u;
+    const x = c.x * T, y = c.y * T, cx = x + T / 2, cy = y + T / 2, d = DIRV[c.dir];
+    // 放置压缩回弹：1.2 → 0.95 → 1，约 190ms（「咚」的重量感）
+    let sc = 1;
+    const t0 = this._anims.get(c.x + ',' + c.y);
+    if (t0 !== undefined) {
+      const k = (now - t0) / 190;
+      if (k >= 1) this._anims.delete(c.x + ',' + c.y);
+      else sc = 1 + 0.2 * (1 - k) * (1 - k) * Math.cos(k * Math.PI * 2);
+    }
+    ctx.save();
+    if (sc !== 1) { ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy); }
+    ctx.drawImage(this._base(c), x, y, T, T);
+    const solid = ctx.globalAlpha >= 1; // 教学幽灵不产粒子
+    switch (c.type) {
+      case 'belt': {
+        // 保持布线阶段也有流向提示；供料与模拟暂停不影响这层纯视觉动画。
+        this.beltFlow(ctx, c.dir, x, y, (now / 300) % 1);
+        break;
+      }
+      case 'extractor': { // 旋转钻头 + 资源色光晕 + 碎屑
+        const rt = Sim.adjResource(c);
+        const rtColor = rt && rt.kind === 'trapezoid-v2' ? '#82b9de' : SHAPE_COLOR[rt];
+        if (rt) { // 资源色呼吸光晕
+          ctx.strokeStyle = rtColor;
+          ctx.globalAlpha = (0.3 + 0.2 * Math.sin(now / 460)) * (solid ? 1 : 1);
+          ctx.lineWidth = 2 * u;
+          ctx.beginPath(); ctx.arc(cx, cy, T * 0.36, 0, 7); ctx.stroke();
+          ctx.globalAlpha = solid ? ctx.globalAlpha : ctx.globalAlpha; // 透明度继承（幽灵层统一 0.22）
+          ctx.globalAlpha = 1;
+        }
+        ctx.save(); // 钻头：三叶螺旋桨 + 中心轴
+        ctx.translate(cx, cy);
+        ctx.rotate(now / 300 % (Math.PI * 2));
+        ctx.fillStyle = rt ? rtColor : '#8a93a8';
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(0, -2.6 * u); ctx.lineTo(T * 0.2, -1 * u); ctx.lineTo(T * 0.2, 1 * u); ctx.lineTo(0, 2.6 * u);
+          ctx.closePath(); ctx.fill();
+          ctx.rotate(Math.PI * 2 / 3);
+        }
+        ctx.fillStyle = '#14101f';
+        ctx.beginPath(); ctx.arc(0, 0, 2.4 * u, 0, 7); ctx.fill();
+        ctx.restore();
+        if (solid && !this.lowFx && Math.random() < 0.02) burst(c.x, c.y, rt ? rtColor : '#8a93a8', 1); // 碎屑
+        this.port(ctx, c.x, c.y, c.dir, 'out'); // 出口：正面
+        break;
+      }
+      case 'cutter': { // 激光束 + 切割火花
+        if (G.v3) for (const dir of [c.dir, (c.dir + 1) % 4]) {
+          const side = DIRV[dir];
+          ctx.fillStyle = '#141c2b'; ctx.strokeStyle = '#8baac9'; ctx.lineWidth = 1.2 * u;
+          ctx.beginPath(); ctx.arc(cx + side[0] * 9 * u, cy + side[1] * 9 * u, 6.5 * u, 0, 7);
+          ctx.fill(); ctx.stroke();
+        }
+        ctx.save(); this._rot(ctx, c.dir, T);
+        const pulse = 0.65 + 0.35 * Math.sin(now / 170);
+        ctx.strokeStyle = 'rgba(255,90,74,' + (0.22 * pulse).toFixed(3) + ')'; // 外晕
+        ctx.lineWidth = 5 * u;
+        ctx.beginPath(); ctx.moveTo(cx, cy - 11 * u); ctx.lineTo(cx, cy + 11 * u); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,90,74,' + (0.85 * pulse).toFixed(3) + ')'; // 束体
+        ctx.lineWidth = 2.2 * u;
+        ctx.beginPath(); ctx.moveTo(cx, cy - 11 * u); ctx.lineTo(cx, cy + 11 * u); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,224,216,' + pulse.toFixed(3) + ')'; // 亮芯
+        ctx.lineWidth = u;
+        ctx.beginPath(); ctx.moveTo(cx, cy - 11 * u); ctx.lineTo(cx, cy + 11 * u); ctx.stroke();
+        ctx.restore();
+        if (solid && c.proc && !this.lowFx && Math.random() < 0.25) burst(c.x, c.y, '#ffc46a', 1); // 切割火花
+        this.port(ctx, c.x, c.y, (c.dir + 2) % 4, 'in');  // 入口：背面
+        if ((G.v2 && c.machineMode === 'fine') || G.v3) this.port(ctx, c.x, c.y, (c.dir + 3) % 4, 'in'); // 回送第二入口
+        this.port(ctx, c.x, c.y, c.dir, 'out');           // 出口1：正面（右半）
+        this.port(ctx, c.x, c.y, (c.dir + 1) % 4, 'out'); // 出口2：右侧（左半）
+        break;
+      }
+      case 'rotator': { // 旋转平台 + 机械臂 + 绿色能量环
+        const a0 = now / 400 % (Math.PI * 2);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(a0); // 旋转平台纹理
+        ctx.strokeStyle = '#2f5243';
+        ctx.lineWidth = 1.6 * u;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(T * 0.2, 0); ctx.stroke();
+          ctx.rotate(Math.PI * 2 / 3);
+        }
+        ctx.restore();
+        const ae = a0 + Math.PI * 1.4; // 机械臂（旋转方向指示，沿用 V1 读法）
+        ctx.strokeStyle = '#7bd88f';
+        ctx.lineWidth = 2.4 * u;
+        ctx.beginPath(); ctx.arc(cx, cy, 8.5 * u, a0, ae); ctx.stroke();
+        this.arrowAngle(ctx, cx + Math.cos(ae) * 8.5 * u, cy + Math.sin(ae) * 8.5 * u, ae + Math.PI / 2, '#7bd88f');
+        ctx.strokeStyle = 'rgba(123,216,143,' + (0.22 + 0.16 * Math.sin(now / 500)).toFixed(3) + ')'; // 能量环
+        ctx.lineWidth = 1.6 * u;
+        ctx.beginPath(); ctx.arc(cx, cy, T * 0.3, 0, 7); ctx.stroke();
+        this.port(ctx, c.x, c.y, (c.dir + 2) % 4, 'in');  // 入口：背面
+        this.port(ctx, c.x, c.y, c.dir, 'out');           // 出口：正面
+        break;
+      }
+      case 'merger': { // 融合腔脉冲 + 加工时金色焊接火花
+        ctx.save(); this._rot(ctx, c.dir, T);
+        const r = DIRV[(c.dir + 1) % 4];
+        ctx.strokeStyle = 'rgba(232,210,122,.4)'; // 双进料导向线（本地：背面=左，右侧=上）
+        ctx.lineWidth = 1.6 * u;
+        ctx.beginPath();
+        ctx.moveTo(cx - 11 * u, cy); ctx.lineTo(cx - 3.5 * u, cy);
+        ctx.moveTo(cx, cy - 11 * u); ctx.lineTo(cx, cy - 3.5 * u);
+        ctx.stroke();
+        ctx.restore();
+        const pr = T * (0.1 + (c.proc ? 0.03 : 0) + 0.015 * Math.sin(now / 240));
+        ctx.fillStyle = c.proc ? '#ffe89a' : '#e8d27a'; // 融合核心
+        ctx.globalAlpha *= 0.9;
+        ctx.beginPath(); ctx.arc(cx, cy, pr, 0, 7); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(232,210,122,' + (0.3 + 0.25 * Math.sin(now / 240)).toFixed(3) + ')'; // 能量脉冲环
+        ctx.lineWidth = 1.4 * u;
+        ctx.beginPath(); ctx.arc(cx, cy, T * 0.17 + Math.sin(now / 240) * 1.6 * u, 0, 7); ctx.stroke();
+        if (solid && c.proc && !this.lowFx && Math.random() < 0.22) burst(c.x, c.y, '#ffd97a', 1); // 焊接火花
+        this.port(ctx, c.x, c.y, (c.dir + 2) % 4, 'in');  // 入口1：背面（底）
+        this.port(ctx, c.x, c.y, (c.dir + 1) % 4, 'in');  // 入口2：右侧（补）
+        this.port(ctx, c.x, c.y, c.dir, 'out');           // 出口：正面
+        break;
+      }
+      case 'trash': { // 闪烁警示灯 + 吸入粒子（无状态相位动画）
+        const blink = Math.sin(now / 150) > 0;
+        ctx.fillStyle = blink ? '#ff5a4a' : '#5a2426';
+        ctx.beginPath(); ctx.arc(c.x * T + 5.4 * u, c.y * T + 5.4 * u, 2 * u, 0, 7); ctx.fill();
+        if (blink) {
+          ctx.strokeStyle = 'rgba(255,90,74,.4)';
+          ctx.lineWidth = u;
+          ctx.beginPath(); ctx.arc(c.x * T + 5.4 * u, c.y * T + 5.4 * u, 3.4 * u, 0, 7); ctx.stroke();
+        }
+        if (!this.lowFx) for (let i = 0; i < 3; i++) { // 碎屑被吸入粉碎口
+          const ph = (now / 650 + i / 3) % 1;
+          const a = ph * 3.1 + i * 2.1;
+          const rr = (1 - ph) * T * 0.26;
+          ctx.globalAlpha = 0.15 + ph * 0.45;
+          ctx.fillStyle = '#c56a6a';
+          ctx.beginPath(); ctx.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 1.3 * u, 0, 7); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'hub': { // 能量场 + 数据流 + 全息目标屏（保留交付脉冲回弹）
+        const pulse = 1 + G.hubPulse * 0.12;
+        G.hubPulse *= 0.94;
+        ctx.save();
+        ctx.translate(cx, cy); ctx.scale(pulse, pulse); ctx.translate(-cx, -cy);
+        ctx.strokeStyle = 'rgba(242,169,59,.55)'; // 旋转能量场（虚线环）
+        ctx.lineWidth = 1.8 * u;
+        ctx.setLineDash([4 * u, 5 * u]);
+        ctx.lineDashOffset = -now / 28;
+        ctx.beginPath(); ctx.arc(cx, cy, T * 0.41, 0, 7); ctx.stroke();
+        ctx.setLineDash([]);
+        if (!this.lowFx) for (let i = 0; i < 2; i++) { // 数据流光点升向屏幕
+          const ph = (now / 520 + i * 0.5) % 1;
+          ctx.globalAlpha = 0.2 + ph * 0.6;
+          ctx.fillStyle = '#ffd166';
+          ctx.beginPath(); ctx.arc(cx + (i ? -4 * u : 4 * u), cy - ph * 13 * u, 1.3 * u, 0, 7); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // 全息目标屏：悬浮于枢纽上方
+        const hy = y - 14 * u + Math.sin(now / 500) * 2 * u;
+        ctx.fillStyle = 'rgba(15,18,28,.88)';
+        this.rrect(ctx, cx - 14 * u, hy - 14 * u, 28 * u, 28 * u, 6 * u); ctx.fill();
+        ctx.strokeStyle = '#f2a93b';
+        ctx.lineWidth = 1.4 * u;
+        this.rrect(ctx, cx - 14 * u, hy - 14 * u, 28 * u, 28 * u, 6 * u); ctx.stroke();
+        this.shapeIcon(ctx, G.target, cx, hy, 9 * u);
+        ctx.restore();
+        break;
+      }
+    }
+    if ((G.v2 || G.v3) && (c.type === 'cutter' || c.type === 'merger')) this.machineBadge(ctx, c);
+    ctx.restore();
+  },
+
+  machineBadge(ctx, c) {
+    const names = { rough: 'K1', fine: 'K2', half: 'M½', final: 'M✓', auto: 'A', vertical: 'V', horizontal: 'H' };
+    const label = names[c.machineMode];
+    if (!label) return;
+    const u = this.u, x = c.x * TILE, y = c.y * TILE;
+    ctx.save();
+    ctx.font = '700 ' + Math.max(7, 8 * u) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(10,14,23,.86)';
+    this.rrect(ctx, x + 2 * u, y + 2 * u, 14 * u, 9 * u, 2 * u); ctx.fill();
+    ctx.fillStyle = c.locked ? '#ffd166' : '#dce8f6';
+    ctx.fillText(label, x + 9 * u, y + 6.5 * u);
+    ctx.restore();
+  },
+
+  items(ctx, alpha) {
+    const T = TILE, u = this.u;
+    const SLOTS = ['item', 'inA', 'inB', 'outA', 'outB'];
+    for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+      const c = G.grid[y][x];
+      if (!c || c.type === 'resource') continue;
+      const d = DIRV[c.dir], r = DIRV[(c.dir + 1) % 4];
+      const cutterTray = !!(G.v3 && c.type === 'cutter');
+      const outputInset = cutterTray ? 9 * u : 5 * u;
+      const offs = {
+        item: [0, 0],
+        inA: [-d[0] * 4 * u, -d[1] * 4 * u],
+        inB: [r[0] * 4 * u, r[1] * 4 * u],
+        outA: [d[0] * outputInset, d[1] * outputInset],
+        outB: [r[0] * outputInset, r[1] * outputInset],
+      };
+      for (const s of SLOTS) {
+        const it = c[s];
+        if (!it) continue;
+        const a = Math.min(1, (G.tickCount - it.moveTick + alpha) / MOVE_EVERY);
+        const gx = it.fx + (c.x - it.fx) * a, gy = it.fy + (c.y - it.fy) * a;
+        const size = cutterTray && (s === 'outA' || s === 'outB') ? 6 * u : 10 * u;
+        this.shapeIcon(ctx, it.shape, gx * T + T / 2 + offs[s][0], gy * T + T / 2 + offs[s][1], size);
+      }
+      if (c.proc) { // 加工进度条 + 进度头亮点
+        this.shapeIcon(ctx, c.proc.shape, x * T + T / 2, y * T + T / 2, 7 * u);
+        if ((G.v2 || G.v3) && c.proc.shapeB) this.shapeIcon(ctx, c.proc.shapeB, x * T + T / 2 + 7 * u, y * T + T / 2, 5 * u);
+        const p = 1 - c.proc.t / PROC_TICKS;
+        ctx.fillStyle = '#57e389';
+        ctx.fillRect(x * T + 5 * u, y * T + T - 6 * u, (T - 10 * u) * p, 2 * u);
+        ctx.fillStyle = '#c8ffd8';
+        ctx.beginPath(); ctx.arc(x * T + 5 * u + (T - 10 * u) * p, y * T + T - 5 * u, 1.6 * u, 0, 7); ctx.fill();
+      }
+      if ((G.v2 || G.v3) && (c.type === 'cutter' || c.type === 'merger')) this.queueMarks(ctx, c);
+    }
+  },
+
+  queueMarks(ctx, c) {
+    const qa = c.queueA || [], qb = c.queueB || [];
+    if (!qa.length && !qb.length && !c.status) return;
+    const u = this.u, x = c.x * TILE, y = c.y * TILE;
+    ctx.save();
+    ctx.font = '700 ' + Math.max(7, 8 * u) + 'px sans-serif';
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    const badge = (n, bx, by, col) => {
+      ctx.fillStyle = 'rgba(8,13,23,.88)';
+      this.rrect(ctx, bx - 5 * u, by - 4.5 * u, 10 * u, 9 * u, 2 * u); ctx.fill();
+      ctx.fillStyle = col; ctx.fillText(String(n), bx, by + 0.4 * u);
+    };
+    if (qa.length) badge(qa.length, x + 6 * u, y + TILE - 7 * u, '#73e7ad');
+    if (qb.length) badge(qb.length, x + TILE - 6 * u, y + TILE - 7 * u, '#b1e5ff');
+    if (c.status && /满|堵|缺|等待|blocked|full|wait|missing/i.test(String(c.status))) {
+      ctx.fillStyle = '#ffb75e';
+      ctx.beginPath(); ctx.arc(x + TILE - 5 * u, y + 5 * u, 2.7 * u, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  },
+
+  v2Hover(ctx) {
+    const h = G.hover;
+    if (!h || h.x < 0 || h.y < 0 || !G.grid[h.y]) return;
+    const c = G.grid[h.y][h.x];
+    if (!c || (c.type !== 'cutter' && c.type !== 'merger' && c.type !== 'belt')) return;
+    const qa = c.queueA || [], qb = c.queueB || [];
+    const first = qa[0] || qb[0] || c.proc || c.outA || c.outB || c.item;
+    if (!qa.length && !qb.length && !c.status && !c.proc && !c.outA && !c.outB) return;
+    const w = 176, hh = 82, pad = 5;
+    let x = (h.x + 1) * TILE + 6;
+    if (x + w > GRID_W * TILE) x = h.x * TILE - w - 6;
+    const y = Math.max(pad, Math.min(GRID_H * TILE - hh - pad, h.y * TILE - hh / 2));
+    ctx.save();
+    ctx.fillStyle = 'rgba(13,18,30,.96)';
+    this.rrect(ctx, x, y, w, hh, 7); ctx.fill();
+    ctx.strokeStyle = '#58718b'; ctx.lineWidth = 1.2;
+    this.rrect(ctx, x, y, w, hh, 7); ctx.stroke();
+    if (first && first.shape) this.shapeIcon(ctx, first.shape, x + 37, y + 40, 27);
+    ctx.fillStyle = '#e5efff'; ctx.font = '700 11px sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText((c.machineMode || c.type).toUpperCase() + ' · ' + (c.locked ? '已锁定' : '可调整'), x + 72, y + 17);
+    ctx.font = '10px sans-serif'; ctx.fillStyle = '#a9d4b7';
+    const v3Cutter = !!(G.v3 && c.type === 'cutter');
+    if (v3Cutter) {
+      const stage = it => !it ? '空' : it.shape.stage === 'vertical-half' ? '半块' :
+        it.shape.stage === 'quarter' ? '四分之一' : it.shape.stage;
+      ctx.fillText('前出口:' + stage(c.outA) + '  侧出口:' + stage(c.outB), x + 72, y + 35);
+    } else ctx.fillText('入口 A: ' + qa.length + '   入口 B: ' + qb.length, x + 72, y + 35);
+    const status = String(c.status || (c.proc ? '加工中' : '等待材料'));
+    ctx.fillStyle = /满|堵|缺|未连接|blocked|full|missing/i.test(status) ? '#ffbd77' : '#b9cce3';
+    const parts = v3Cutter ? status.split('；') : [status];
+    ctx.fillText(parts[0].length > 24 ? parts[0].slice(0, 23) + '…' : parts[0], x + 72, y + 53);
+    if (parts.length > 1) {
+      ctx.fillText(parts[1].length > 24 ? parts[1].slice(0, 23) + '…' : parts[1], x + 72, y + 69);
+    } else if (first && first.shape && (first.shape.kind === 'trapezoid-v2' || first.shape.kind === 'petal-v3')) {
+      const s = first.shape, mats = (s.units || []).map(v => v.resource).join('');
+      ctx.fillStyle = '#9eb3c9';
+      ctx.fillText((s.recipeId || mats) + ' · ' + s.stage, x + 72, y + 69);
+    }
+    ctx.restore();
+  },
+
+  fx(ctx, dt) {
+    const ps = G.particles;
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const p = ps[i];
+      p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.life -= dt * 1.6;
+      if (p.life <= 0) { ps.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.min(1, p.life);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.s / 2, p.y - p.s / 2, p.s, p.s);
+    }
+    ctx.globalAlpha = 1;
+  },
+
+  // 交付冲击波环：hubPulse 上升沿触发，金色扩张环
+  rings(ctx, now) {
+    if (G.hubPulse > 0.9 && this._hubPulsePrev <= 0.9) {
+      for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
+        const c = G.grid[y][x];
+        if (c && c.type === 'hub') {
+          this._rings.push({ x, y, t0: now });
+          if (!this.lowFx) burst(x, y, '#ffd166', 14); // 金色爆发
+        }
+      }
+    }
+    this._hubPulsePrev = G.hubPulse;
+    for (let i = this._rings.length - 1; i >= 0; i--) {
+      const rg = this._rings[i], k = (now - rg.t0) / 520;
+      if (k >= 1) { this._rings.splice(i, 1); continue; }
+      const cx = rg.x * TILE + TILE / 2, cy = rg.y * TILE + TILE / 2;
+      ctx.globalAlpha = (1 - k) * 0.8;
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = (3.5 * (1 - k) + 0.8) * this.u;
+      ctx.beginPath(); ctx.arc(cx, cy, (0.35 + k * 1.8) * TILE, 0, 7); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  },
+
+  // 框选高亮矩形
+  selRect(ctx) {
+    if (!G.selMode) return;
+    ctx.fillStyle = 'rgba(88,166,255,.06)';
+    ctx.fillRect(0, 0, GRID_W * TILE, GRID_H * TILE);
+    if (!G.sel) return;
+    const s = G.sel;
+    const x = Math.min(s.x0, s.x1) * TILE, y = Math.min(s.y0, s.y1) * TILE;
+    const w = (Math.abs(s.x1 - s.x0) + 1) * TILE, h = (Math.abs(s.y1 - s.y0) + 1) * TILE;
+    ctx.fillStyle = 'rgba(88,166,255,.14)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#58a6ff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.setLineDash([]);
+  },
+
+  // 蓝图粘贴幽灵：蓝色线框 + 底纹（蓝图风），冲突格单独标红框
+  bpGhost(ctx) {
+    const bp = G.paste, h = G.hover, u = this.u;
+    if (!bp || h.x < 0 || h.y < 0) return;
+    const bad = Blueprints.check(bp, h.x, h.y);
+    for (const c of bp.cells) {
+      const x = (h.x + c.dx) * TILE, y = (h.y + c.dy) * TILE;
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = bad ? 'rgba(110,61,61,.5)' : 'rgba(61,110,178,.42)';
+      this.rrect(ctx, x + 2 * u, y + 2 * u, TILE - 4 * u, TILE - 4 * u, 5 * u); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = bad ? '#e08a8a' : '#6aa8ff'; // 蓝图线框
+      ctx.lineWidth = 1.3 * u;
+      this.rrect(ctx, x + 2 * u, y + 2 * u, TILE - 4 * u, TILE - 4 * u, 5 * u); ctx.stroke();
+      ctx.strokeStyle = bad ? 'rgba(224,138,138,.3)' : 'rgba(106,168,255,.3)'; // 对角底纹
+      ctx.lineWidth = u;
+      ctx.beginPath();
+      ctx.moveTo(x + 3 * u, y + TILE - 3 * u); ctx.lineTo(x + TILE - 3 * u, y + 3 * u);
+      ctx.stroke();
+      if (c.type === 'belt') this.beltFlow(ctx, c.dir, x, y, (performance.now() / 300) % 1);
+      else {
+        const d = DIRV[c.dir];
+        this.arrowAt(ctx, x + TILE / 2 + d[0] * 2 * u, y + TILE / 2 + d[1] * 2 * u, c.dir, bad ? '#e08a8a' : '#9fc8ff');
+      }
+    }
+    if (bad) { // 标出第一个冲突格
+      ctx.strokeStyle = '#ff6b6b';
+      ctx.lineWidth = 2 * u;
+      this.rrect(ctx, bad.x * TILE + 1, bad.y * TILE + 1, TILE - 2, TILE - 2, 4 * u); ctx.stroke();
+    }
+    ctx.fillStyle = bad ? '#ff6b6b' : '#9fc8ff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(bp.name + ' ' + bp.w + '×' + bp.h + (bad ? ' · ' + bad.reason : ''), h.x * TILE, h.y * TILE - 4);
+  },
+
+  // 放置预览：全息投影风（扫描线 + 边缘光 + 角标）
+  ghost(ctx, now) {
+    const h = G.hover, u = this.u;
+    if (G.won || h.x < 0 || h.y < 0 || h.x >= GRID_W || h.y >= GRID_H) return;
+    const x = h.x * TILE, y = h.y * TILE;
+    const cell = G.grid[h.y][h.x];
+    if (G.tool === 'bulldoze' || !G.tool) {
+      if (cell && MACHINE_TYPES.indexOf(cell.type) >= 0) {
+        ctx.strokeStyle = '#ff6b6b';
+        ctx.lineWidth = 2 * u;
+        this.rrect(ctx, x + 1, y + 1, TILE - 2, TILE - 2, 4 * u); ctx.stroke();
+      }
+      return;
+    }
+    const ok = !cell && G.budget[G.tool] > 0;
+    const col = ok ? '88,200,255' : '255,110,110';
+    ctx.fillStyle = 'rgba(' + col + ',.1)';
+    this.rrect(ctx, x + 2 * u, y + 2 * u, TILE - 4 * u, TILE - 4 * u, 5 * u); ctx.fill();
+    ctx.save(); // 扫描线（全息质感）
+    this.rrect(ctx, x + 2 * u, y + 2 * u, TILE - 4 * u, TILE - 4 * u, 5 * u); ctx.clip();
+    ctx.fillStyle = 'rgba(' + col + ',.16)';
+    const sweep = (now / 900) % 1 * TILE; // 一道亮扫描带缓慢下移
+    for (let ly = 0; ly < TILE; ly += 4 * u) ctx.fillRect(x, y + ly, TILE, 1);
+    ctx.fillStyle = 'rgba(' + col + ',.28)';
+    ctx.fillRect(x, y + sweep, TILE, 2.4 * u);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(' + col + ',.85)'; // 边缘光
+    ctx.lineWidth = 1.4 * u;
+    this.rrect(ctx, x + 2 * u, y + 2 * u, TILE - 4 * u, TILE - 4 * u, 5 * u); ctx.stroke();
+    ctx.strokeStyle = 'rgba(' + col + ',1)'; // 四角标
+    ctx.lineWidth = 2.2 * u;
+    const L = 5.5 * u, o = 1.2 * u;
+    for (const [sx, sy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const px = x + (sx ? TILE - o : o), py = y + (sy ? TILE - o : o);
+      ctx.beginPath();
+      ctx.moveTo(px - (sx ? L : -L) * -1, py);
+      ctx.lineTo(px, py);
+      ctx.lineTo(px, py - (sy ? L : -L) * -1);
+      ctx.stroke();
+    }
+    if (G.tool === 'belt') this.beltFlow(ctx, G.toolDir, x, y, (now / 300) % 1);
+    else {
+      const cx = x + TILE / 2, cy = y + TILE / 2, d = DIRV[G.toolDir];
+      this.arrowAt(ctx, cx + d[0] * 2 * u, cy + d[1] * 2 * u, G.toolDir, ok ? '#dbe2f1' : '#e08a8a');
+    }
+  },
+
+  // ===== 形状图标：按象限绘制（0=右上 1=右下 2=左下 3=左上） =====
+  shapeIcon(ctx, shape, cx, cy, r) {
+    if (shape && shape.kind === 'petal-v3') {
+      this.petalIcon(ctx, shape, cx, cy, r);
+      return;
+    }
+    if (shape && shape.kind === 'trapezoid-v2') {
+      this.trapezoidIcon(ctx, shape, cx, cy, r);
+      return;
+    }
+    const DIAG = [[1, -1], [1, 1], [-1, 1], [-1, -1]];   // 象限对角方向
+    const AXA = [[1, 0], [0, 1], [-1, 0], [0, -1]];       // 象限边轴 A
+    const AXB = [[0, -1], [1, 0], [0, 1], [-1, 0]];       // 象限边轴 B
+    for (let i = 0; i < 4; i++) {
+      const t = shape[i];
+      if (!t) continue;
+      ctx.fillStyle = SHAPE_COLOR[t];
+      ctx.strokeStyle = 'rgba(10,12,18,.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (t === 'C') {           // 四分之一圆瓣
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, r, (i - 1) * Math.PI / 2, i * Math.PI / 2);
+        ctx.closePath();
+      } else if (t === 'T' || t === 'R') { // 旧 R 存档在迁移前也按梯形绘制
+        const outlines = [
+          [[0.8, 0], [0.6, -1], [0, -1]],
+          [[0.8, 0], [1, 1], [0, 1]],
+          [[0, 1], [-1, 1], [-0.8, 0]],
+          [[-0.8, 0], [-0.6, -1], [0, -1]],
+        ];
+        ctx.moveTo(cx, cy);
+        for (const [px, py] of outlines[i]) ctx.lineTo(cx + px * r, cy + py * r);
+        ctx.closePath();
+      } else {                   // 'S'：四分之一星瓣（凹点收进 0.34r）
+        const a = AXA[i], b = AXB[i], dg = DIAG[i];
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + a[0] * r, cy + a[1] * r);
+        ctx.lineTo(cx + dg[0] * r * 0.34, cy + dg[1] * r * 0.34);
+        ctx.lineTo(cx + b[0] * r, cy + b[1] * r);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.stroke();
+    }
+  },
+
+  // 四瓣各沿原料轮廓裁切；1/4 是槽位名称，不要求梯形四瓣等面积。
+  petalIcon(ctx, shape, cx, cy, r) {
+    const petals = {
+      TL: [[0, 0], [-0.8, 0], [-0.6, -1], [0, -1]],
+      TR: [[0, 0], [0, -1], [0.6, -1], [0.8, 0]],
+      BL: [[0, 0], [0, 1], [-1, 1], [-0.8, 0]],
+      BR: [[0, 0], [0.8, 0], [1, 1], [0, 1]],
+    };
+    const star = {
+      TL: [[0, 0], [-1, 0], [-0.34, -0.34], [0, -1]],
+      TR: [[0, 0], [0, -1], [0.34, -0.34], [1, 0]],
+      BL: [[0, 0], [0, 1], [-0.34, 0.34], [-1, 0]],
+      BR: [[0, 0], [1, 0], [0.34, 0.34], [0, 1]],
+    };
+    const arc = { TL: [Math.PI, Math.PI * 1.5], TR: [Math.PI * 1.5, Math.PI * 2],
+      BL: [Math.PI * 0.5, Math.PI], BR: [0, Math.PI * 0.5] };
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((shape.orientation || 0) * Math.PI / 180);
+    for (const unit of shape.units || []) {
+      const slot = unit.slot || unit.quadrant;
+      const type = unit.resource || unit.shapeKind || shape.shapeKind;
+      if (!petals[slot]) continue;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      if (type === 'C') ctx.arc(0, 0, r, arc[slot][0], arc[slot][1]);
+      else for (const [px, py] of (type === 'S' ? star : petals)[slot].slice(1))
+        ctx.lineTo(px * r, py * r);
+      ctx.closePath();
+      ctx.fillStyle = SHAPE_COLOR[type] || '#8ab7dc';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(8,13,22,.65)';
+      ctx.lineWidth = Math.max(0.8, r * 0.06);
+      ctx.stroke();
+      if (!this.lowFx && r >= 8) {
+        ctx.save(); ctx.clip();
+        ctx.strokeStyle = 'rgba(5,12,24,.52)';
+        ctx.fillStyle = 'rgba(5,12,24,.55)';
+        ctx.lineWidth = Math.max(0.8, r * 0.08);
+        const sx = slot.endsWith('L') ? -1 : 1, sy = slot.startsWith('T') ? -1 : 1;
+        if (type === 'T') {
+          for (let k = -1; k <= 1; k++) {
+            ctx.beginPath(); ctx.moveTo(sx * r * (0.15 + k * 0.25), sy * r * 0.2);
+            ctx.lineTo(sx * r * (0.48 + k * 0.25), sy * r * 0.72); ctx.stroke();
+          }
+        } else if (type === 'C') {
+          for (const [px, py] of [[0.3, 0.3], [0.6, 0.4], [0.4, 0.65]]) {
+            ctx.beginPath(); ctx.arc(sx * r * px, sy * r * py, Math.max(0.6, r * 0.045), 0, 7); ctx.fill();
+          }
+        } else {
+          for (const k of [0.25, 0.5, 0.75]) {
+            ctx.beginPath(); ctx.moveTo(sx * r * k, sy * r * 0.12);
+            ctx.lineTo(sx * r * k * 0.4, sy * r * 0.75); ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  },
+
+  // 全坯面积为 0.8：F(t)=0.6t+0.2t²。以面积分数求横切高度，
+  // 原切片保留全坯外缘；压合后的半坯以 sqrt(1/2) 缩放而保持面积。
+  trapezoidIcon(ctx, shape, cx, cy, r) {
+    const colors = { A: '#4DA3FF', B: '#F2AA4C', C: '#B58AE8', D: '#55C7AB' };
+    const units = shape.units || [];
+    const pressed = shape.stage === 'mixed-half' || shape.stage === 'finished';
+    const scale = pressed && shape.stage === 'mixed-half' ? Math.SQRT1_2 : 1;
+    const span = !pressed && Array.isArray(shape.span) ? shape.span : [0, 1];
+    const f0 = Math.max(0, Math.min(1, +span[0] || 0));
+    const f1 = Math.max(f0, Math.min(1, +span[1] || 0));
+    const lo = pressed ? 0 : f0, hi = pressed ? 1 : f1;
+    if (!units.length || hi <= lo) return;
+    const tAt = f => (-0.6 + Math.sqrt(0.36 + 0.64 * f)) / 0.4;
+    const edge = t => 0.6 + 0.4 * t;
+    const pathBand = (a, b) => {
+      const ta = tAt(a), tb = tAt(b), wa = edge(ta) * r, wb = edge(tb) * r;
+      ctx.beginPath();
+      ctx.moveTo(-wa, -r + 2 * r * ta); ctx.lineTo(wa, -r + 2 * r * ta);
+      ctx.lineTo(wb, -r + 2 * r * tb); ctx.lineTo(-wb, -r + 2 * r * tb);
+      ctx.closePath();
+    };
+    let bands = units.map(v => v.resource || v.type || 'A');
+    if (pressed && shape.recipeId) {
+      const recipe = shape.recipeId.replace(/^[HF]_/, '').split('');
+      if (shape.stage === 'finished' && recipe.length === 2) bands = [recipe[0], recipe[1], recipe[0], recipe[1]];
+      else if (recipe.length === units.length) bands = recipe;
+    }
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((((+shape.orientation || 0) % 360) + 360) % 360 * Math.PI / 180);
+    ctx.scale(scale, scale);
+    const df = (hi - lo) / bands.length;
+    for (let i = 0; i < bands.length; i++) {
+      const a = lo + i * df, b = a + df, material = bands[i];
+      pathBand(a, b);
+      ctx.fillStyle = colors[material] || '#aab6c8'; ctx.fill();
+      if (!this.lowFx && r >= 7) {
+        ctx.save(); pathBand(a, b); ctx.clip();
+        ctx.strokeStyle = 'rgba(9,16,28,.48)'; ctx.fillStyle = 'rgba(9,16,28,.5)';
+        ctx.lineWidth = Math.max(0.6, r * 0.055);
+        const tm = tAt((a + b) / 2), yy = -r + 2 * r * tm;
+        if (material === 'A') { // 斜线
+          for (let xx = -r; xx <= r; xx += r * 0.45) {
+            ctx.beginPath(); ctx.moveTo(xx - r * 0.15, yy + r * 0.18); ctx.lineTo(xx + r * 0.15, yy - r * 0.18); ctx.stroke();
+          }
+        } else if (material === 'B') { // 点阵
+          for (let xx = -r * 0.55; xx <= r * 0.55; xx += r * 0.42) {
+            ctx.beginPath(); ctx.arc(xx, yy, Math.max(0.55, r * 0.055), 0, 7); ctx.fill();
+          }
+        } else if (material === 'C') { // 横线
+          for (let dy = -r * 0.1; dy <= r * 0.1; dy += r * 0.2) {
+            ctx.beginPath(); ctx.moveTo(-r * 0.7, yy + dy); ctx.lineTo(r * 0.7, yy + dy); ctx.stroke();
+          }
+        } else if (material === 'D') { // 网格
+          ctx.beginPath(); ctx.moveTo(-r * 0.55, yy); ctx.lineTo(r * 0.55, yy);
+          ctx.moveTo(-r * 0.24, yy - r * 0.17); ctx.lineTo(-r * 0.24, yy + r * 0.17);
+          ctx.moveTo(r * 0.24, yy - r * 0.17); ctx.lineTo(r * 0.24, yy + r * 0.17); ctx.stroke();
+        }
+        ctx.restore();
+      }
+      if (i) {
+        const t = tAt(a), w = edge(t) * r;
+        ctx.strokeStyle = 'rgba(10,13,22,.6)'; ctx.lineWidth = Math.max(0.65, r * 0.065);
+        ctx.beginPath(); ctx.moveTo(-w, -r + 2 * r * t); ctx.lineTo(w, -r + 2 * r * t); ctx.stroke();
+      }
+    }
+    pathBand(lo, hi);
+    ctx.strokeStyle = shape.stage === 'raw' ? '#8b96a7' : pressed ? '#f7e7aa' : '#d7e5ed';
+    ctx.lineWidth = Math.max(0.8, r * (pressed ? 0.09 : 0.075)); ctx.stroke();
+    if (pressed) { // 与原坯可辨的压合印记
+      ctx.strokeStyle = '#fff1bf'; ctx.lineWidth = Math.max(0.7, r * 0.07);
+      const marks = shape.stage === 'finished' ? [-0.16, 0.16] : [0];
+      for (const mx of marks) {
+        ctx.beginPath(); ctx.moveTo(mx * r - r * 0.085, -r * 0.21);
+        ctx.lineTo(mx * r - r * 0.085, r * 0.21); ctx.lineTo(mx * r + r * 0.085, r * 0.21); ctx.stroke();
+      }
+    }
+    if (r >= 16) {
+      ctx.fillStyle = '#101725'; ctx.font = '700 ' + Math.max(8, r * 0.45) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < bands.length; i++) {
+        const yy = -r + 2 * r * tAt(lo + (i + 0.5) * df);
+        ctx.fillText(bands[i], 0, yy);
+      }
+    }
+    ctx.restore();
+  },
+
+  // ===== 基础图元 =====
+  rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  },
+  // 把 ctx 旋转到「本地 +x = 机器朝向」（图元原型朝右，dir 0上1右2下3左）
+  _rot(ctx, dir, T) {
+    ctx.translate(T / 2, T / 2);
+    ctx.rotate((dir - 1) * Math.PI / 2);
+    ctx.translate(-T / 2, -T / 2);
+  },
+  // 只靠沿实际流向滚动的斜纹表达方向；每格先平移到本地坐标，再旋转。
+  beltFlow(ctx, dir, x, y, phase) {
+    const T = TILE, u = this.u, middle = T / 2;
+    ctx.save();
+    ctx.translate(x, y);
+    this._rot(ctx, dir, T);
+    ctx.beginPath();
+    ctx.rect(2 * u, middle - T * 0.25, T - 4 * u, T * 0.5);
+    ctx.clip();
+    const step = 8 * u, offset = ((phase % 1) + 1) % 1 * step;
+    ctx.strokeStyle = this.lowFx ? 'rgba(155,212,255,.72)' : 'rgba(160,218,255,.84)';
+    ctx.lineWidth = Math.max(1, 1.8 * u);
+    for (let sx = -step + offset; sx < T + step; sx += step) {
+      ctx.beginPath();
+      ctx.moveTo(sx, middle - T * 0.19);
+      ctx.lineTo(sx + 3 * u, middle + T * 0.19);
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+  arrowAt(ctx, px, py, dir, color) {
+    this.arrowAngle(ctx, px, py, (dir - 1) * Math.PI / 2, color);
+  },
+  arrowAngle(ctx, px, py, angle, color) {
+    const u = this.u;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(angle);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(4 * u, 0); ctx.lineTo(-3 * u, -3.5 * u); ctx.lineTo(-3 * u, 3.5 * u); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  },
+  dirMark(ctx, cx, cy, dir) {
+    const d = DIRV[dir];
+    this.arrowAt(ctx, cx + d[0] * 12 * this.u, cy + d[1] * 12 * this.u, dir, '#5b6685');
+  },
+  // 出入口标记：格子 dir 侧边缘的显眼三角形。出口=黄三角尖朝外，入口=绿三角尖朝内
+  port(ctx, x, y, dir, kind) {
+    const u = this.u;
+    const d = DIRV[dir];
+    const px = x * TILE + TILE / 2 + d[0] * (TILE / 2 - 1);
+    const py = y * TILE + TILE / 2 + d[1] * (TILE / 2 - 1);
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate((dir - 1) * Math.PI / 2); // 局部 +x 方向 = 朝格外侧（与 arrowAt 同约定）
+    ctx.fillStyle = kind === 'out' ? '#ffd166' : '#57e389';
+    ctx.strokeStyle = 'rgba(10,12,18,.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (kind === 'out') { ctx.moveTo(6 * u, 0); ctx.lineTo(-4 * u, -5 * u); ctx.lineTo(-4 * u, 5 * u); }
+    else { ctx.moveTo(-6 * u, 0); ctx.lineTo(4 * u, -5 * u); ctx.lineTo(4 * u, 5 * u); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  },
+};
+
+</script>
+<script>
+'use strict';
+/* input.js — 鼠标/键盘交互 + DOM 界面（关卡页签、工具栏、提示、弹窗）
+ * 输入层只写 G，不直接推进模拟。
+ */
+
+function ge(id) { return document.getElementById(id); }
+
+// 关卡栏只在内容溢出时启用鼠标拖动；触屏保留浏览器的原生惯性滚动。
+const TabScroller = {
+  el: null, viewport: null, drag: null, suppressClick: false, clickTimer: null,
+  init(el, viewport) {
+    if (this.el === el) return;
+    this.el = el;
+    this.viewport = viewport;
+    el.addEventListener('scroll', () => this.sync(), { passive: true });
+    el.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || !this.overflowing()) return;
+      this.drag = { id: e.pointerId, x: e.clientX, scroll: el.scrollLeft, active: false };
+    });
+    el.addEventListener('pointermove', e => {
+      const drag = this.drag;
+      if (!drag || drag.id !== e.pointerId) return;
+      const distance = e.clientX - drag.x;
+      if (!drag.active && Math.abs(distance) < 5) return;
+      if (!drag.active) {
+        drag.active = true;
+        el.classList.add('dragging');
+        if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+      }
+      el.scrollLeft = drag.scroll - distance;
+      e.preventDefault();
+      this.sync();
+    });
+    const finish = e => {
+      if (!this.drag || this.drag.id !== e.pointerId) return;
+      if (this.drag.active) {
+        this.suppressClick = true;
+        clearTimeout(this.clickTimer);
+        this.clickTimer = setTimeout(() => { this.suppressClick = false; }, 0);
+      }
+      this.drag = null;
+      el.classList.remove('dragging');
+      if (el.hasPointerCapture && el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    };
+    el.addEventListener('pointerup', finish);
+    el.addEventListener('pointercancel', finish);
+    el.addEventListener('click', e => {
+      if (!this.suppressClick) return;
+      this.suppressClick = false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, true);
+    window.addEventListener('resize', () => this.sync());
+    if (window.ResizeObserver) {
+      const observer = new window.ResizeObserver(() => this.sync());
+      observer.observe(viewport);
+      observer.observe(el);
+    }
+    this.sync();
+  },
+  overflowing() { return !!(this.el && this.el.clientWidth > 0 && this.el.scrollWidth > this.el.clientWidth + 1); },
+  sync() {
+    if (!this.el || !this.viewport) return;
+    const overflow = this.overflowing();
+    if (!overflow) {
+      this.el.scrollLeft = 0;
+      this.drag = null;
+      this.el.classList.remove('dragging');
+    }
+    this.viewport.classList.toggle('scrollable', overflow);
+    this.viewport.classList.toggle('can-left', overflow && this.el.scrollLeft > 1);
+    this.viewport.classList.toggle('can-right', overflow && this.el.scrollLeft < this.el.scrollWidth - this.el.clientWidth - 1);
+  },
+  revealActive() {
+    if (!this.overflowing()) return;
+    const active = this.el.querySelector('.tab.cur');
+    if (!active || !active.getBoundingClientRect || !this.el.getBoundingClientRect) return;
+    const visible = this.el.getBoundingClientRect(), tab = active.getBoundingClientRect();
+    if (tab.left < visible.left) this.el.scrollLeft += tab.left - visible.left;
+    else if (tab.right > visible.right) this.el.scrollLeft += tab.right - visible.right;
+    this.sync();
+  },
+  refresh(previousScroll) {
+    if (!this.el) return;
+    this.el.scrollLeft = previousScroll;
+    this.revealActive();
+    this.sync();
+  },
+};
+
+// 浏览器启动时无法在没有用户手势的情况下强制旋转设备；竖屏先提示，操作后尝试全屏锁定。
+const Landscape = {
+  initialized: false,
+  detectMobile() {
+    if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')) return true;
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    return !!(coarse && navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) <= 1024);
+  },
+  portrait() {
+    return window.matchMedia ? window.matchMedia('(orientation: portrait)').matches : window.innerHeight > window.innerWidth;
+  },
+  update() {
+    const blocked = this.detectMobile() && this.portrait();
+    G.orientationBlocked = blocked;
+    const gate = ge('landscape-gate');
+    if (gate) gate.hidden = !blocked;
+  },
+  init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    ge('landscape-action').addEventListener('click', () => this.request());
+    window.addEventListener('resize', () => this.update());
+    window.addEventListener('orientationchange', () => this.update());
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.update());
+    if (screen.orientation && screen.orientation.addEventListener)
+      screen.orientation.addEventListener('change', () => this.update());
+    document.addEventListener('fullscreenchange', () => this.update());
+    document.addEventListener('visibilitychange', () => this.update());
+    this.update();
+  },
+  async request() {
+    if (!this.detectMobile()) return false;
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen)
+        await document.documentElement.requestFullscreen();
+    } catch (e) { /* 全屏可能不支持；仍可手动旋转 */ }
+    try {
+      if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+    } catch (e) { /* iOS 等浏览器可能拒绝锁定；方向提示继续生效 */ }
+    this.update();
+    return !G.orientationBlocked;
+  },
+};
+
+const UI = {
+  els: {},
+  bpOpen: false,
+  init() {
+    this.els = {
+      tabs: ge('tabs'), lvlName: ge('lvl-name'), toolbar: ge('toolbar'),
+      toast: ge('toast'), hint: ge('hint'), modal: ge('modal'),
+      winStars: ge('win-stars'), winInfo: ge('win-info'), btnNext: ge('btn-next'),
+      bpbar: ge('bpbar'), menu: ge('menu'), statRate: ge('stat-rate'),
+      sidebar: ge('sidebar'),
+    };
+    TabScroller.init(this.els.tabs, ge('tabs-viewport'));
+    // 工具栏
+    TOOLS.forEach(t => {
+      const b = document.createElement('div');
+      b.className = 'tool';
+      b.id = 'tool-' + t.id;
+      b.innerHTML = '<span class="k">' + t.key + '</span><span class="g">' + t.glyph +
+        '</span><span class="n">' + t.name + '</span><span class="b"></span>';
+      b.addEventListener('click', () => {
+        if (b.classList.contains('off')) {
+          UI.toast('「' + t.name + '」本关不可用或预算已用完');
+          AudioFX.deny();
+          return;
+        }
+        G.tool = (G.tool === t.id) ? null : t.id; // 再点一次取消选择（空工具点击 = 拆除）
+        G.paste = null; G.selMode = false; G.sel = null; // 选工具即退出粘贴/框选态
+        UI.refreshToolbar();
+      });
+      this.els.toolbar.appendChild(b);
+    });
+    // 侧边栏动作键：旋转、框选、撤销、重做、存蓝图（键盘对应 R/B/Ctrl+Z/Ctrl+Y/S）
+    const noopEv = { preventDefault() {} };
+    [
+      ['⟳', '旋转（R）', () => Input.key(Object.assign({ key: 'r' }, noopEv))],
+      ['⬚', '框选复制（B）', () => Input.key(Object.assign({ key: 'b' }, noopEv))],
+      ['↶', '撤销（Ctrl+Z）', () => Input.key(Object.assign({ key: 'z', ctrlKey: true }, noopEv))],
+      ['↷', '重做（Ctrl+Y）', () => Input.key(Object.assign({ key: 'y', ctrlKey: true }, noopEv))],
+      ['✚', '保存蓝图为库（S）', () => UI.saveBlueprint()],
+      ['▤', '蓝图库／导入导出', () => { UI.bpOpen = !UI.bpOpen; UI.refreshBps(); }],
+    ].forEach(([glyph, tip, fn]) => {
+      const b = document.createElement('div');
+      b.className = 'tool act';
+      b.innerHTML = '<span class="g">' + glyph + '</span><span class="n">' + tip + '</span>';
+      b.title = tip;
+      b.addEventListener('click', fn);
+      this.els.sidebar.appendChild(b);
+    });
+    // 顶栏按钮
+    ge('btn-pause').addEventListener('click', () => {
+      if (!G.won) { G.paused = !G.paused; UI.syncPause(); }
+    });
+    ge('btn-restart').addEventListener('click', () => {
+      if (G.mode === 'free') loadFree();
+      else if (G.mode === 'challenge') loadChallenge(G.chalIndex);
+      else if (G.mode === 'daily') loadDaily();
+      else loadLevel(G.levelIndex);
+    });
+    ge('btn-sound').addEventListener('click', () => {
+      G.save.sound = !G.save.sound; persist(); UI.syncSound();
+    });
+    ge('btn-hint').addEventListener('click', () => UI.toast(G.chalDef && (G.mode==='challenge'||G.mode==='daily') ? G.chalDef.hint : LEVELS[G.levelIndex].hint, 8));
+    ge('bp-import-file').addEventListener('change', async e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        if (file.size > Blueprints.MAX_FILE_BYTES) throw new Error('蓝图文件大小超限');
+        this.importBlueprintText(await file.text());
+      } catch (err) { this.toast(err.message || '蓝图导入失败', 5); }
+      e.target.value = '';
+    });
+    ge('c4-start').addEventListener('click', () => {
+      if (startC4Supply()) this.refreshChalProgress();
+    });
+    ge('btn-next-target').addEventListener('click', () => { // 自由模式：换目标
+      nextFreeTarget();
+      UI.toast('已换新目标');
+    });
+    // 主菜单与模式入口
+    ge('btn-menu').addEventListener('click', () => UI.showMenu());
+    ge('mode-tutorial').addEventListener('click', () => { Landscape.request(); setMode('tutorial'); });
+    ge('mode-free').addEventListener('click', () => { Landscape.request(); setMode('free'); });
+    ge('mode-challenge').addEventListener('click', () => { Landscape.request(); setMode('challenge'); });
+    ge('mode-daily').addEventListener('click', () => { Landscape.request(); setMode('daily'); });
+    // D15：底部托盘收起/展开（收起只留拉手，释放画布底部安全区）
+    ge('tray-toggle').addEventListener('click', () => {
+      ge('tray').classList.toggle('min');
+      Render.resize();
+    });
+    // 速度控制：按钮循环 1x→2x→4x
+    ge('btn-speed').addEventListener('click', () => {
+      setSpeed(SPEEDS[(SPEEDS.indexOf(G.speed) + 1) % SPEEDS.length]);
+    });
+    // 统计 HUD：30 秒滚动窗口 → 件/分，附在途与累计；挑战模式附实时进度
+    setInterval(() => {
+      const now = performance.now(), log = G.stats.log;
+      while (log.length && now - log[0] > 30000) log.shift();
+      this.els.statRate.textContent = (log.length * 2) + ' 件/分 · 在途 ' + inTransit() + ' · 累计 ' + G.delivered;
+      if ((G.mode === 'challenge' || G.mode === 'daily') && G.chal) this.refreshChalProgress();
+    }, 500);
+    // 过关弹窗
+    ge('btn-next').addEventListener('click', () => {
+      UI.hideModal();
+      if (G.mode === 'challenge') loadChallenge(G.chalIndex + 1); else loadLevel(G.levelIndex + 1);
+    });
+    ge('btn-replay').addEventListener('click', () => {
+      UI.hideModal();
+      if (G.mode === 'challenge') loadChallenge(G.chalIndex); else loadLevel(G.levelIndex);
+    });
+    ge('btn-close').addEventListener('click', () => UI.hideModal());
+    this.syncSound();
+  },
+
+  // 顶栏通关条件（常驻）：按模式生成「要做什么 + 约束」短文本，玩家不用点提示即见
+  refreshTargetCond() {
+    const el = ge('target-cond');
+    if (!el) return;
+    if(G.v3) { el.textContent=G.chalDef.recipeId.replace('F_','')+' '+G.delivered+'/'+G.chalDef.need; return; }
+    if(G.v2) { el.textContent=G.v2.orders.map(o=>o.recipeId.replace('F_','')+' '+o.delivered+'/'+o.need).join(' · '); return; }
+    const chal = G.mode === 'challenge', daily = G.mode === 'daily', free = G.mode === 'free';
+    if (free) { el.textContent = '送到枢纽换题'; return; }
+    if (chal || daily) {
+      const C = G.chalDef;
+      const parts = [];
+      if (C.need) parts.push('交付×' + C.need);
+      if (C.passNeed) parts.push('交付≥' + C.passNeed);
+      if (C.tickLimit) parts.push('限' + Math.round(C.tickLimit * TICK_MS / 1000) + 's游戏时');
+      if (C.realLimit) parts.push('限' + C.realLimit + 's');
+      if (C.devLimit) parts.push('≤' + C.devLimit + '台');
+      if (C.id === 'C2' || C.id === 'C6') parts.push('拼设备数'); // 设备评级关点出核心
+      el.textContent = parts.join(' · ') || '交付目标';
+      return;
+    }
+    // 教程：交付 1 个目标形状过关，par 设备数评级
+    const L = LEVELS[G.levelIndex];
+    el.textContent = L ? (L.blueprintThreeStar ? '交付1个 · 3★使用蓝图1次' : '交付1个 · 3★≤' + L.par[0] + '台') : '';
+  },
+
+  refreshLevel() {
+    this.refreshV2();
+    this.refreshC4Controls();
+    const free = G.mode === 'free', chal = G.mode === 'challenge', daily = G.mode === 'daily';
+    ge('tabs-viewport').style.display = free ? 'none' : ''; // 自由模式无关卡页签
+    const topbar = ge('topbar'), tabsChanged = this._tabsVisible !== !free;
+    this._tabsVisible = !free;
+    topbar.classList.toggle('has-tabs', !free);
+    if (tabsChanged && Render.cv) Render.resize(); // 两行顶栏与单行顶栏切换后重算画布安全区
+    ge('btn-hint').style.display = free || !!G.v3 ? 'none' : '';
+    ge('btn-next-target').style.display = free ? '' : 'none';
+    if (chal || daily) {
+      const C = G.chalDef, rec = daily ? G.save.daily[C.dateStr] :
+        (G.v3 ? G.save.challengeV3 || {} : G.v2 ? G.save.challengeV2 : G.save.challenges)[C.id];
+      this.els.lvlName.textContent = (daily ? MODES.daily : MODES.challenge) + ' · ' + (daily ? C.dateStr : C.id + ' ' + C.name) + (rec && rec.stars ? ' · ' + '★'.repeat(rec.stars) : '');
+      Render.drawPreview(G.target);
+      this.refreshTargetCond();
+      this.refreshLevels();
+      this.refreshBps();
+      this.refreshChalProgress();
+      return;
+    }
+    if (free) {
+      this.els.lvlName.textContent = MODES.free + ' · 随机目标（参考 ' + (G.freePar || '?') + ' 台）';
+      this.els.hint.textContent = '提示：全机器解锁、不限预算。把目标形状送进枢纽即自动换新目标，也可点「换一个」。B 框选 / S 存蓝图照常可用。';
+      Render.drawPreview(G.target);
+      this.refreshTargetCond();
+      this.refreshBps();
+      return;
+    }
+    const L = LEVELS[G.levelIndex], st = G.save.stars[G.levelIndex] || 0;
+    this.els.lvlName.textContent = MODES[G.mode] + ' · 第' + (G.levelIndex + 1) + '关 · ' + L.name + (st ? ' · ' + '★'.repeat(st) : '');
+    this.els.hint.textContent = '提示：' + L.hint;
+    Render.drawPreview(G.target);
+    this.refreshTargetCond();
+    this.refreshLevels();
+    this.refreshBps();
+  },
+
+  // 蓝图栏：内置 4 个 + 存档里的自建蓝图；教程 L5 起开放
+  v3StockText() {
+    const v = G.v3;
+    const count = lists => (lists || []).reduce((sum, items) => sum + items.length, 0);
+    return '持续供料 ∞ · 当前缓存 ' + count(v.stockByNode) +
+      ' · 已发 ' + (v.emitted || 0) + ' · 废料 ' + (v.discardedItems || []).length;
+  },
+
+  refreshBps() {
+    const bar = this.els.bpbar;
+    if (!bar) return;
+    const active = G.v3 ? 'petal-v3' : G.v2 ? 'trapezoid-v2' : 'classic-v1';
+    bar.style.display = this.bpOpen ? 'flex' : 'none';
+    bar.innerHTML = '';
+    if (!this.bpOpen) return;
+    const label = document.createElement('strong');
+    label.className = 'bplabel';
+    label.textContent = '蓝图库 · ' + ({'petal-v3':'四瓣规则','trapezoid-v2':'旧梯形规则','classic-v1':'经典规则'})[active];
+    bar.appendChild(label);
+    if (G.mode === 'challenge' || G.mode === 'tutorial') {
+      const levels = document.createElement('div'); levels.className = 'drawer-actions';
+      const source = G.mode === 'challenge' ? CHALLENGES : LEVELS;
+      source.forEach((entry, index) => {
+        const button = document.createElement('button'); button.className = 'hbtn';
+        button.textContent = G.mode === 'challenge' ? entry.id : String(index + 1);
+        button.title = entry.name;
+        button.addEventListener('click', () => G.mode === 'challenge' ? loadChallenge(index) : loadLevel(index));
+        levels.appendChild(button);
+      });
+      bar.appendChild(levels);
+    }
+    const actions = document.createElement('div'); actions.className = 'drawer-actions';
+    for (const [name,id] of [['速度','btn-speed'],['重开','btn-restart'],['音效','btn-sound']]) {
+      const button = document.createElement('button'); button.className = 'hbtn'; button.textContent = name;
+      button.addEventListener('click', () => { ge(id).click(); this.refreshBps(); });
+      actions.appendChild(button);
+    }
+    if (!G.v3 && G.mode !== 'free') {
+      const hint = document.createElement('button'); hint.className='hbtn'; hint.textContent='提示';
+      hint.addEventListener('click', () => ge('btn-hint').click()); actions.appendChild(hint);
+    }
+    bar.appendChild(actions);
+    const importButton = document.createElement('button');
+    importButton.className = 'hbtn'; importButton.textContent = '导入 .slbp.json';
+    importButton.addEventListener('click', () => ge('bp-import-file').click());
+    bar.appendChild(importButton);
+    if (G.v3) {
+      const status = document.createElement('span');
+      status.id = 'v3-stock-status'; status.className = 'bplabel';
+      status.textContent = this.v3StockText();
+      bar.appendChild(status);
+      const label = document.createElement('label'); label.className = 'bplabel';
+      label.textContent = '切割机模式 · 每次入机只切一级 ';
+      const select = document.createElement('select');
+      select.title = '自动档根据完整原坯或半块选择纵切或横切；二次切割需重新入机';
+      for (const [value,name] of [['auto','自动判断'],['vertical','纵切'],['horizontal','横切']]) {
+        const option = document.createElement('option'); option.value=value; option.textContent=name;
+        select.appendChild(option);
+      }
+      select.value = G.v3.toolModes.cutter;
+      select.addEventListener('change', () => {
+        G.v3.toolModes.cutter = select.value;
+        const pos = G.v3.selected, cell = pos && cellAt(pos.x,pos.y);
+        if (cell && cell.type === 'cutter') {
+          if (V3Runtime.occupied(cell)) { this.toast('机器有物品时不能切换模式'); select.value=cell.machineMode; return; }
+          cell.machineMode = select.value;
+        }
+      });
+      label.appendChild(select); bar.appendChild(label);
+      const mergeLabel = document.createElement('label'); mergeLabel.className = 'bplabel';
+      mergeLabel.textContent = '混合机模式 ';
+      const mergeSelect = document.createElement('select');
+      for (const [value, name] of [['auto','自动'],['half','半块'],['final','成品']]) {
+        const option = document.createElement('option'); option.value = value; option.textContent = name;
+        mergeSelect.appendChild(option);
+      }
+      mergeSelect.value = G.v3.toolModes.merger;
+      mergeSelect.addEventListener('change', () => {
+        G.v3.toolModes.merger = mergeSelect.value;
+        const pos = G.v3.selected, cell = pos && cellAt(pos.x,pos.y);
+        if (cell && cell.type === 'merger') {
+          if (V3Runtime.occupied(cell)) { this.toast('机器有物品时不能切换模式'); mergeSelect.value = cell.machineMode; return; }
+          cell.machineMode = mergeSelect.value;
+        }
+      });
+      mergeLabel.appendChild(mergeSelect); bar.appendChild(mergeLabel);
+      const reset = document.createElement('button'); reset.className='hbtn'; reset.textContent='重置供料，保留布线';
+      reset.addEventListener('click', () => { V3Runtime.resetMaterial(); this.refreshChalProgress(); this.refreshBps(); });
+      bar.appendChild(reset);
+    }
+    if (active === 'classic-v1') BUILTIN_BPS.forEach(bp => bar.appendChild(this._bpItem(bp, true)));
+    Object.values(G.save.blueprints).forEach(bp => bar.appendChild(this._bpItem(bp, false)));
+  },
+
+  _bpItem(bp, builtin) {
+    const el = document.createElement('span');
+    el.className = 'bp';
+    const title = document.createElement('span');
+    title.textContent = bp.name + ((bp.ruleset || 'classic-v1') === (G.v3 ? 'petal-v3' : G.v2 ? 'trapezoid-v2' : 'classic-v1') ? '' : ' · 旧规则');
+    const size = document.createElement('span'); size.className = 'sz'; size.textContent = bp.w + '×' + bp.h;
+    el.appendChild(title); el.appendChild(size);
+    el.title = '点击粘贴：R 旋转，左键放置，Esc 取消';
+    el.addEventListener('click', () => {
+      if (bp.migrationPending) { this.toast('旧版蓝图需重新核对资源与端口，暂不能直接粘贴', 5); return; }
+      const activeRuleset = G.v3 ? 'petal-v3' : G.v2 ? 'trapezoid-v2' : 'classic-v1';
+      if ((bp.ruleset || 'classic-v1') !== activeRuleset) { this.toast('此蓝图属于其他规则，可先导出保存', 5); return; }
+      G.paste = Blueprints.clone(bp);
+      G.selMode = false; G.sel = null; G.tool = null;
+      this.refreshToolbar();
+      this.toast('粘贴「' + bp.name + '」：左键放置 · R 旋转 · Esc 取消');
+    });
+    if (!builtin) {
+      const exportButton = document.createElement('span');
+      exportButton.className = 'op'; exportButton.textContent = '⬇'; exportButton.title = '导出 .slbp.json';
+      exportButton.addEventListener('click', e => { e.stopPropagation(); this.downloadBlueprint(bp); });
+      el.appendChild(exportButton);
+      const rn = document.createElement('span');
+      rn.className = 'op'; rn.textContent = '✎'; rn.title = '改名';
+      rn.addEventListener('click', e => {
+        e.stopPropagation();
+        const n = prompt('蓝图改名：', bp.name);
+        if (n) { bp.name = n.slice(0, 12); persist(); this.refreshBps(); }
+      });
+      const del = document.createElement('span');
+      del.className = 'op'; del.textContent = '×'; del.title = '删除';
+      del.addEventListener('click', e => {
+        e.stopPropagation();
+        delete G.save.blueprints[bp.id];
+        persist(); this.refreshBps();
+        this.toast('已删除蓝图「' + bp.name + '」');
+      });
+      el.appendChild(rn); el.appendChild(del);
+    }
+    return el;
+  },
+
+  // S 键：把剪贴板蓝图存入蓝图库
+  saveBlueprint() {
+    if (!G.clip) { this.toast('剪贴板为空：先按 B 框选复制'); return; }
+    const n = prompt('蓝图命名：', G.clip.name);
+    if (n === null) return;
+    G.clip.name = (n || G.clip.name).slice(0, 12);
+    G.clip.id = 'bp' + Date.now();
+    G.save.blueprints[G.clip.id] = Blueprints.clone(G.clip);
+    persist();
+    this.refreshBps();
+    checkAchievements(); // 蓝图师成就
+    this.toast('蓝图「' + G.clip.name + '」已保存');
+  },
+
+  importBlueprintText(text) {
+    try {
+      const imported = Blueprints.importFile(text);
+      const add = (source, pending = false) => {
+        const bp = Blueprints.clone(source);
+        let id = bp.id || 'bp-import-' + Date.now();
+        while (G.save.blueprints[id]) id += '-copy';
+        bp.id = id;
+        if (pending) bp.migrationPending = true;
+        G.save.blueprints[id] = bp;
+        return bp;
+      };
+      const saved = add(imported.blueprint);
+      if (imported.preview) {
+        imported.preview.id = saved.id + '-preview';
+        imported.preview.name = saved.name + '（迁移预览）';
+        add(imported.preview, true);
+      }
+      persist(); this.refreshBps(); checkAchievements();
+      this.toast(imported.warning || '蓝图「' + saved.name + '」已导入', imported.warning ? 5 : 2);
+      return saved;
+    } catch (err) {
+      this.toast(err.message || '蓝图导入失败', 5);
+      return false;
+    }
+  },
+
+  downloadBlueprint(bp) {
+    try {
+      const content = Blueprints.exportFile(bp);
+      const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = Blueprints.sanitizeName(bp.name).replace(/[\\/:*?"<>|]/g, '_') + '.slbp.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return true;
+    } catch (err) { this.toast(err.message || '蓝图导出失败', 5); return false; }
+  },
+
+  refreshLevels() {
+    const el = this.els.tabs;
+    const previousScroll = el.scrollLeft || 0;
+    el.innerHTML = '';
+    if (G.mode === 'challenge' || G.mode === 'daily') { // 挑战选择页签（复用教程标签样式，全开放无锁）
+      CHALLENGES.forEach((C, i) => {
+        const b = document.createElement('button');
+        const rec = (C.ruleset==='petal-v3'?G.save.challengeV3 || {}:
+          C.ruleset==='trapezoid-v2'?G.save.challengeV2:G.save.challenges)[C.id];
+        b.className = 'tab' + (G.mode === 'challenge' && i === G.chalIndex ? ' cur' : '');
+        b.title = C.ruleset === 'petal-v3' ? C.id + ' · ' + C.name : C.hint;
+        b.innerHTML = C.id + '<span class="st">' + (rec && rec.stars ? '★'.repeat(rec.stars) : '') + '</span>';
+        b.addEventListener('click', () => loadChallenge(i));
+        el.appendChild(b);
+      });
+      TabScroller.refresh(previousScroll);
+      return;
+    }
+    LEVELS.forEach((L, i) => {
+      const b = document.createElement('button');
+      const locked = i >= G.save.unlocked;
+      b.className = 'tab' + (i === G.levelIndex ? ' cur' : '') + (locked ? ' lock' : '');
+      const st = G.save.stars[i] || 0;
+      b.innerHTML = (i + 1) + '<span class="st">' + (st ? '★'.repeat(st) : '') + '</span>';
+      if (!locked) b.addEventListener('click', () => loadLevel(i));
+      el.appendChild(b);
+    });
+    TabScroller.refresh(previousScroll);
+  },
+
+  refreshToolbar() {
+    TOOLS.forEach(t => {
+      ge('tool-' + t.id).classList.toggle('sel', G.tool === t.id);
+    });
+  },
+
+  refreshBudget() {
+    TOOLS.forEach(t => {
+      const b = ge('tool-' + t.id), badge = b.querySelector('.b');
+      if (t.id === 'bulldoze') { badge.textContent = ''; return; }
+      const n = G.budget[t.id];
+      badge.textContent = (n === Infinity) ? '∞' : n;
+      b.classList.toggle('off', !(n > 0));
+    });
+  },
+
+  syncPause() { ge('btn-pause').textContent = G.paused ? '继续' : '暂停'; },
+  syncSound() { ge('btn-sound').textContent = G.save.sound ? '♪ 音效' : '♪ 静音'; },
+  syncSpeed() { ge('btn-speed').textContent = G.speed + 'x'; },
+
+  showMenu() { // 打开主菜单即暂停，选模式后恢复
+    if (!G.won) { G.paused = true; this.syncPause(); }
+    this.renderAchievements();
+    this.els.menu.style.display = 'flex';
+  },
+  hideMenu() {
+    this.els.menu.style.display = 'none';
+  },
+
+  // 主菜单成就一览
+  renderAchievements() {
+    const el = ge('ach-list');
+    if (!el) return;
+    el.innerHTML = '';
+    ACHIEVEMENTS.forEach(a => {
+      const got = !!G.save.achievements[a.id];
+      const s = document.createElement('span');
+      s.className = 'ach' + (got ? ' got' : '');
+      s.title = a.desc;
+      s.textContent = (got ? '★ ' : '☆ ') + a.name;
+      el.appendChild(s);
+    });
+  },
+
+  toast(msg, sec) {
+    const el = this.els.toast;
+    el.textContent = msg;
+    el.style.opacity = 1;
+    clearTimeout(this._tt);
+    this._tt = setTimeout(() => { el.style.opacity = 0; }, (sec || 2) * 1000);
+  },
+
+  showWin(stars, total) {
+    if (!G.won) return; // 等待期间可能已重开关卡
+    this.els.modal.querySelector('h2').textContent = '过关！';
+    this.els.winStars.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+    const L = LEVELS[G.levelIndex];
+    let info = '共用 ' + total + ' 台设备（' + (L.blueprintThreeStar
+      ? '3★ 需成功粘贴蓝图1次；未用蓝图时2★≤' + L.par[1] + '台'
+      : '3★ 不超过 ' + L.par[0] + ' 台') + '）';
+    if (G.levelIndex === LEVELS.length - 1) info += ' · 教程毕业！去自由模式练手 / 去挑战模式验证'; // 3.2 通关 L8 引导
+    this.els.winInfo.textContent = info;
+    this.els.btnNext.style.display = (G.levelIndex + 1 < LEVELS.length) ? '' : 'none';
+    this.els.modal.style.display = 'flex';
+  },
+
+  // 挑战实时进度（顶部 hint 行常驻，500ms 刷新）
+  c4Remaining() {
+    const C = G.chalDef;
+    return C && C.id === 'C4' ? Math.max(0, Math.ceil((C.tickLimit - G.tickCount) * TICK_MS / 1000)) : 0;
+  },
+
+  refreshC4Controls() {
+    const active = G.mode === 'challenge' && G.chalDef && G.chalDef.id === 'C4';
+    ge('topbar').classList.toggle('c4-mode', !!active);
+    const timer = ge('c4-timer'), start = ge('c4-start');
+    timer.style.display = active ? '' : 'none';
+    const waiting = !!(active && G.chal && !G.chal.started && !G.chal.done);
+    start.style.display = waiting ? '' : 'none';
+    start.classList.toggle('supply-attention', waiting);
+    start.textContent = '▶ 启动供料';
+    if (active) timer.textContent = '剩余 ' + this.c4Remaining() + 's';
+  },
+
+  refreshChalProgress() {
+    if(G.v3) {
+      this.els.hint.textContent=''; this.refreshTargetCond(); this.refreshC4Controls();
+      const stock = ge('v3-stock-status');
+      if (stock) stock.textContent = this.v3StockText();
+      return;
+    }
+    if(G.v2) { this.refreshV2(); this.els.hint.textContent=G.chalDef.hint; return; }
+    const C = G.chalDef;
+    this.refreshC4Controls();
+    let s = '已交付 ' + G.delivered + (C.need ? '/' + C.need : '');
+    if (C.tickLimit) s += ' · 剩余 ' + this.c4Remaining() + 's';
+    if (C.realTimer) s += ' · 用时 ' + G.chal.elapsed.toFixed(1) + 's' + (C.realLimit ? ' / ' + C.realLimit + 's' : '');
+    if (C.devLimit) s += ' · 设备 ' + usedTotal() + '/' + C.devLimit;
+    this.els.hint.textContent = C.hint + '　【' + s + '】';
+  },
+
+  // 挑战结算弹窗：星级 + 成绩 + 最佳记录
+  showChalWin(stars, scoreText, isBest) {
+    const C = G.chalDef;
+    this.els.modal.querySelector('h2').textContent = stars > 0 ? '过关！' : '未达标';
+    this.els.winStars.textContent = stars > 0 ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '未达标';
+    this.els.winInfo.textContent = (C.isDaily ? C.name : C.id + ' ' + C.name) + ' · ' + scoreText + (isBest ? ' · 新纪录！' : '');
+    this.els.btnNext.style.display = (stars > 0 && !C.isDaily && G.chalIndex + 1 < CHALLENGES.length) ? '' : 'none';
+    this.els.modal.style.display = 'flex';
+  },
+
+  hideModal() { this.els.modal.style.display = 'none'; },
+
+  refreshV2() {
+    const bar=ge('v2-controls'); if(!bar) return;
+    const show=!!G.v2, prev=bar.style.display;
+    ge('tray').classList.toggle('v2-mode',show);
+    bar.style.display=show?'flex':'none';
+    if(show) {
+      const v=G.v2;
+      ge('v2-cutter').value=v.toolModes.cutter; ge('v2-merger').value=v.toolModes.merger;
+      ge('v2-stock').textContent='库存 '+v.initial.length+' · 待补 '+v.reserve.length+' · 已发 '+v.emitted;
+      const orders=ge('v2-orders'); orders.textContent='';
+      for(const o of v.orders) {
+        const label=document.createElement('span'); label.className='v2-order';
+        const canvas=document.createElement('canvas'); canvas.width=44;canvas.height=40;
+        if(canvas.getContext) Render.shapeIcon(canvas.getContext('2d'),Trapezoid.preview(o.recipeId),22,20,16);
+        label.appendChild(canvas);
+        const text=document.createElement('span');text.textContent=o.recipeId.replace('F_','')+' '+o.delivered+'/'+o.need;
+        label.appendChild(text);orders.appendChild(label);
+      }
+      this.refreshTargetCond();
+    }
+    if(prev!==bar.style.display) Render.resize();
+  },
+};
+
+const Input = {
+  drag: null, // 拖拽会话 { button, last:{x,y}, placed:[], warned }
+
+  init() {
+    UI.init();
+    Landscape.init();
+    const cv = Render.cv;
+    cv.addEventListener('mousemove', e => this._move(e));
+    cv.addEventListener('mouseleave', () => { G.hover = { x: -1, y: -1 }; });
+    cv.addEventListener('contextmenu', e => e.preventDefault());
+    cv.addEventListener('mousedown', e => this._down(e));
+    window.addEventListener('mouseup', () => this._up());
+    window.addEventListener('keydown', e => this.key(e));
+    // 方向/可见视口变化后下一帧重排；旋转事件再补一次以适配尺寸稍晚更新的浏览器。
+    let resizePending = false;
+    const resize = () => {
+      if (resizePending) return;
+      resizePending = true;
+      requestAnimationFrame(() => { resizePending = false; Render.resize(); });
+    };
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', () => { resize(); setTimeout(resize, 120); });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+    document.addEventListener('fullscreenchange', resize);
+    // 触屏桥接：单指 = 鼠标左键（放置/拖拽连铺/粘贴/框选），全程禁页面滚动缩放
+    cv.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const t = e.changedTouches[0];
+      this._down({ clientX: t.clientX, clientY: t.clientY, button: 0 });
+    }, { passive: false });
+    cv.addEventListener('touchmove', e => {
+      e.preventDefault();
+      const t = e.changedTouches[0];
+      this._move({ clientX: t.clientX, clientY: t.clientY });
+    }, { passive: false });
+    cv.addEventListener('touchend', e => { e.preventDefault(); this._up(); }, { passive: false });
+    cv.addEventListener('touchcancel', () => this._up());
+  },
+
+  _move(e) {
+    const p = this.pos(e);
+    G.hover = p;
+    if (G.selMode && G.sel) { // 框选中：更新矩形
+      const q = {
+        x: Math.max(0, Math.min(GRID_W - 1, p.x)),
+        y: Math.max(0, Math.min(GRID_H - 1, p.y)),
+      };
+      G.sel.x1 = q.x; G.sel.y1 = q.y;
+      return;
+    }
+    if (!this.drag) return;
+    const q = {
+      x: Math.max(0, Math.min(GRID_W - 1, p.x)),
+      y: Math.max(0, Math.min(GRID_H - 1, p.y)),
+    };
+    if (this.drag.button === 2 || G.tool === 'bulldoze') {
+      this.walkTo(q, (f, t) => this.removeAt(t.x, t.y)); // 拖动连拆
+    } else if (G.tool === 'belt') {
+      this.dragBelt(q); // 拖动连铺
+    }
+  },
+
+  _down(e) {
+    AudioFX.ensure();
+    const p = this.pos(e);
+    G.hover = { x: p.x, y: p.y };
+    if(G.v3&&e.button===0&&!G.paste&&!G.selMode&&G.tool&&G.tool!=='bulldoze') {
+      const c=cellAt(p.x,p.y);
+      if(c&&MACHINE_TYPES.includes(c.type)&&c.type!=='belt') {
+        G.v3.selected={x:p.x,y:p.y};
+        if(c.machineMode && (c.type==='cutter'||c.type==='merger')) G.v3.toolModes[c.type]=c.machineMode;
+        UI.toast(c.status||'机器已选中；可在蓝图库侧栏调整空机器模式');
+        UI.refreshBps();
+        return;
+      }
+      G.v3.selected=null;
+    }
+    if(G.v2&&e.button===0&&!G.paste&&!G.selMode&&G.tool&&G.tool!=='bulldoze') {
+      const c=cellAt(p.x,p.y);
+      if(c&&MACHINE_TYPES.includes(c.type)&&c.type!=='belt') {
+        G.v2.selected={x:p.x,y:p.y};
+        if(c.machineMode) { G.v2.toolModes[c.type]=c.machineMode; UI.refreshV2(); }
+        UI.toast((c.locked?'固定教学机器 · ':'')+(c.status||'可通过下方选择框修改空机器模式'));
+        return;
+      }
+      G.v2.selected=null;
+    }
+    if (e.button === 0 && G.paste) { this.pasteAt(p.x, p.y); return; } // 粘贴态优先
+    if (e.button === 0 && G.selMode) { // 框选起点
+      if (p.x >= 0 && p.y >= 0 && p.x < GRID_W && p.y < GRID_H) G.sel = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      return;
+    }
+    if (e.button === 2) {
+      Undo.begin(); // 拖动连拆 = 一个动作组
+      this.removeAt(p.x, p.y);
+      this.drag = { button: 2, last: p };
+      return;
+    }
+    if (e.button === 0) {
+      if (G.tool === 'belt') {
+        Undo.begin(); // 拖动连铺 = 一个动作组
+        this.drag = { button: 0, last: p, placed: [], warned: false };
+        if (this.tryPlace(p.x, p.y, 'belt', G.toolDir)) {
+          const c = cellAt(p.x, p.y);
+          c._drag = true;
+          this.drag.placed.push(c);
+        }
+      } else {
+        if (G.tool === 'bulldoze') { Undo.begin(); this.drag = { button: 0, last: p }; } // 拖拆成组
+        this.click(p.x, p.y);
+      }
+    }
+  },
+
+  _up() {
+    if (G.selMode && G.sel) this.copyRegion(); // 框选松开即复制
+    if (!this.drag) return;
+    if (this.drag.placed) this.drag.placed.forEach(c => { delete c._drag; });
+    this.drag = null;
+    Undo.end();
+  },
+
+  // D16 统一入口：画布本地像素 → 网格坐标（ox/oy 偏移 + 动态 TILE），禁止直接除固定边长
+  pxToGrid(lx, ly) {
+    return {
+      x: Math.floor((lx - Render.ox) / TILE),
+      y: Math.floor((ly - Render.oy) / TILE),
+    };
+  },
+
+  pos(e) {
+    const r = Render.cv.getBoundingClientRect();
+    const lx = (e.clientX - r.left) / r.width * Render.cssW;
+    const ly = (e.clientY - r.top) / r.height * Render.cssH;
+    return this.pxToGrid(lx, ly);
+  },
+
+  click(x, y) {
+    if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return;
+    if (!G.tool || G.tool === 'bulldoze') { this.removeAt(x, y); return; }
+    if (G.won) return;
+    if (G.paused) { UI.toast('已暂停，按空格继续'); return; }
+    const cell = G.grid[y][x];
+    if (cell) { AudioFX.deny(); return; } // 资源/枢纽/已有机器上不可放置
+    this.tryPlace(x, y, G.tool, G.toolDir);
+  },
+
+  // 统一放置入口：校验边界/占用/预算，成功则建格、扣预算、计数
+  tryPlace(x, y, type, dir, quiet, machineMode) {
+    if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return false;
+    if (G.won || G.paused) return false;
+    if (G.grid[y][x]) return false;
+    if (!(G.budget[type] > 0)) {
+      if (!quiet) {
+        const t = TOOLS.find(t => t.id === type);
+        UI.toast('「' + t.name + '」预算已用完');
+        AudioFX.deny();
+      }
+      return false;
+    }
+    G.grid[y][x] = mkCell(type, x, y, dir);
+    if(G.v2&&(type==='cutter'||type==='merger')) G.grid[y][x].machineMode=machineMode||G.v2.toolModes[type];
+    if(G.v3&&(type==='cutter'||type==='merger')) G.grid[y][x].machineMode=machineMode||G.v3.toolModes[type]||'auto';
+    if (G.budget[type] !== Infinity) G.budget[type]--;
+    G.used[type]++;
+    Undo.rec('place', x, y, type, dir); // 宪法7：统一入口写撤销栈
+    AudioFX.place();
+    UI.refreshBudget();
+    return true;
+  },
+
+  // 从 last 逐格走向 p（先横后纵取差值较大轴），每步回调 (from, to)
+  walkTo(p, fn) {
+    let cur = this.drag.last, guard = 0;
+    while ((cur.x !== p.x || cur.y !== p.y) && guard++ < 64) {
+      const dx = p.x - cur.x, dy = p.y - cur.y;
+      const step = { x: cur.x, y: cur.y };
+      if (Math.abs(dx) >= Math.abs(dy) && dx !== 0) step.x += Math.sign(dx);
+      else if (dy !== 0) step.y += Math.sign(dy);
+      fn(cur, step);
+      cur = step;
+    }
+    this.drag.last = cur;
+  },
+
+  dirFromTo(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return dx > 0 ? 1 : dx < 0 ? 3 : dy > 0 ? 2 : 0;
+  },
+
+  // 拖拽铺传送带：上一条本次拖出的带随拖动转向（自动拐弯），新格朝运动方向
+  dragBelt(p) {
+    this.walkTo(p, (from, to) => {
+      const d = this.dirFromTo(from, to);
+      const prev = cellAt(from.x, from.y);
+      if (prev && prev.type === 'belt' && prev._drag) prev.dir = d;
+      if (this.tryPlace(to.x, to.y, 'belt', d, true)) {
+        const c = cellAt(to.x, to.y);
+        c._drag = true;
+        this.drag.placed.push(c);
+      } else if (!(G.budget.belt > 0) && !this.drag.warned) {
+        this.drag.warned = true;
+        UI.toast('「传送带」预算已用完');
+      }
+    });
+  },
+
+  removeAt(x, y) {
+    if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return;
+    const cell = G.grid[y][x];
+    if (!cell || MACHINE_TYPES.indexOf(cell.type) < 0) return; // 资源与枢纽不可拆
+    const selected = G.v3 ? G.v3.selected : G.v2 ? G.v2.selected : null;
+    const inspectorWasShowingCell = selected && selected.x === x && selected.y === y;
+    Undo.rec('remove', x, y, cell.type, cell.dir);
+    demolishCell(x, y);
+    AudioFX.remove();
+    UI.refreshBudget();
+    if (inspectorWasShowingCell && typeof UI.refreshBps === 'function') UI.refreshBps();
+    else if (G.v3 && UI.bpOpen) {
+      const stock = ge('v3-stock-status');
+      if (stock) stock.textContent = UI.v3StockText();
+    }
+  },
+
+  // 框选复制：不改动网格，结果进剪贴板
+  copyRegion() {
+    const s = G.sel;
+    G.sel = null;
+    const bp = Blueprints.fromRegion(s.x0, s.y0, s.x1, s.y1);
+    if (!bp) { UI.toast('框内没有可复制的机器'); AudioFX.deny(); return; }
+    G.clip = bp;
+    UI.toast('已复制 ' + bp.cells.length + ' 台设备（Ctrl+V 粘贴）');
+    AudioFX.place();
+  },
+
+  // 蓝图粘贴：整体预检，要么全成要么全不
+  pasteAt(px, py) {
+    if (G.won || G.paused) return;
+    const bp = G.paste;
+    const bad = Blueprints.check(bp, px, py);
+    if (bad) {
+      UI.toast('无法粘贴：(' + bad.x + ',' + bad.y + ') ' + bad.reason);
+      AudioFX.deny();
+      return;
+    }
+    Undo.begin(); // 一次粘贴 = 一个撤销动作组
+    let placed = false;
+    for (const c of bp.cells) if (this.tryPlace(px + c.dx, py + c.dy, c.type, c.dir, true, c.machineMode)) placed = true;
+    Undo.end();
+    if (placed && G.mode === 'tutorial') G.blueprintUsed = true;
+    UI.toast('已粘贴「' + bp.name + '」（' + bp.cells.length + ' 台）');
+  },
+
+  key(e) {
+    if (UI.els.menu && UI.els.menu.style.display === 'flex') { // 主菜单打开时只响应 Esc 返回
+      if (e.key === 'Escape') setMode(G.mode);
+      return;
+    }
+    if (e.key === ',' || e.key === '.') { // 速度：, 降档 . 升档
+      const i = Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(G.speed) + (e.key === '.' ? 1 : -1)));
+      if (SPEEDS[i] !== G.speed) { setSpeed(SPEEDS[i]); UI.toast('速度 ×' + SPEEDS[i]); }
+      return;
+    }
+    if (e.key === ' ') {
+      if (!G.won) { G.paused = !G.paused; UI.syncPause(); }
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey)) { // Ctrl+V 进入粘贴态
+      if (G.clip) {
+        G.paste = Blueprints.clone(G.clip);
+        G.selMode = false; G.sel = null; G.tool = null; UI.refreshToolbar();
+        UI.toast('粘贴「' + G.paste.name + '」：左键放置 · R 旋转 · Esc 取消');
+      } else UI.toast('剪贴板为空：先按 B 框选复制');
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) { // Ctrl+Z 撤销
+      UI.toast(Undo.undo() ? '已撤销' : '没有可撤销的操作');
+      e.preventDefault();
+      return;
+    }
+    if ((e.key === 'y' || e.key === 'Y') && (e.ctrlKey || e.metaKey)) { // Ctrl+Y 重做
+      UI.toast(Undo.redoOp() ? '已重做' : '没有可重做的操作');
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Escape') { // 取消顺序：粘贴 → 框选 → 工具
+      if (G.paste) { G.paste = null; UI.toast('已取消粘贴'); return; }
+      if (G.selMode) { G.selMode = false; G.sel = null; return; }
+      G.tool = null; UI.refreshToolbar(); return;
+    }
+    if (e.key === 'b' || e.key === 'B') { // 框选态
+      if (G.won || G.paused) return;
+      G.selMode = true; G.sel = null; G.paste = null; G.tool = null;
+      UI.refreshToolbar();
+      UI.toast('框选模式：拖出矩形复制机器，S 保存为蓝图，Esc 退出');
+      return;
+    }
+    if (e.key === 'm' || e.key === 'M') { // 粘贴态：整体镜像（超额位）
+      if (G.paste) { G.paste = Blueprints.mirror(G.paste); UI.toast('已镜像翻转'); }
+      return;
+    }
+    if (e.key === 's' || e.key === 'S') { UI.saveBlueprint(); return; }
+    if (e.key === 'r' || e.key === 'R') {
+      if (G.paste) { G.paste = Blueprints.rotate(G.paste); return; } // 粘贴态：整体旋转
+      const h = G.hover;
+      const cell = (h.x >= 0 && h.y >= 0 && h.x < GRID_W && h.y < GRID_H) ? G.grid[h.y][h.x] : null;
+      if (!G.tool && cell && MACHINE_TYPES.indexOf(cell.type) >= 0) {
+        if(G.v2&&(G.paused||G.won||cell.locked||V2Runtime.occupied(cell))) {
+          UI.toast(cell.locked?'固定教学机器不可旋转':'先重置材料，再旋转机器');
+          return;
+        }
+        if(G.v3&&(G.paused||G.won||V3Runtime.occupied(cell))) {
+          UI.toast('先重置供料，再旋转机器');
+          return;
+        }
+        cell.dir = (cell.dir + 1) % 4; // 空工具时 R 旋转光标下的已有机器
+      } else {
+        G.toolDir = (G.toolDir + 1) % 4;
+      }
+      return;
+    }
+    const t = TOOLS.find(t => t.key === e.key);
+    if (t) {
+      if (t.id !== 'bulldoze' && !(G.budget[t.id] > 0)) {
+        UI.toast('「' + t.name + '」本关不可用或预算已用完');
+        AudioFX.deny();
+        return;
+      }
+      G.tool = t.id;
+      G.paste = null; G.selMode = false; G.sel = null; // 数字键选工具同样退出粘贴/框选态
+      UI.refreshToolbar();
+    }
+  },
+};
+
+</script>
+</body>
+</html>
