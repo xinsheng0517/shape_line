@@ -328,8 +328,18 @@
     <button class="btn ghost" id="btn-close">返回</button>
   </div>
 </div>
+<style>
+  .synthesis-note{font-size:12px;line-height:1.6;color:var(--dim);margin:4px 0;flex-basis:100%;white-space:normal;overflow-wrap:anywhere;}
+  .synthesis-config,.synthesis-layers{flex-basis:100%;font-size:12px;max-width:100%;}
+  .synthesis-config summary,.synthesis-layers summary{cursor:pointer;padding:6px 0;color:var(--acc);}
+  .synthesis-config textarea{display:block;box-sizing:border-box;width:100%;min-height:230px;padding:8px;background:#0d1420;color:#dbe6f5;border:1px solid #45607d;border-radius:5px;font:12px monospace;resize:vertical;}
+  .synthesis-layer{display:flex;align-items:center;gap:6px;border-top:1px solid #29364a;white-space:normal;overflow-wrap:anywhere;}
+  .synthesis-layer canvas{flex:0 0 72px;}
+</style>
 <script src="js/levels.js"></script>
 <script src="js/blueprint.js"></script>
+<script src="js/synthesis-engine.js"></script>
+<script src="js/synthesis-config.js"></script>
 <script src="js/petal-v3.js"></script>
 <script src="js/challenges.js"></script>
 <script src="js/challenge-v3.js"></script>

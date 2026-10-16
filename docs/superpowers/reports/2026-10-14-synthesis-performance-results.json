@@ -1,0 +1,137 @@
+{
+  "checkedAt": "2026-10-14T17:17:31.558Z",
+  "exactRules": [
+    {
+      "rules": 10,
+      "registrationMs": 0.67,
+      "hitChecks": 2,
+      "missChecks": 0,
+      "hit": {
+        "medianMs": 0.0325,
+        "p95Ms": 0.1839
+      },
+      "miss": {
+        "medianMs": 0.0144,
+        "p95Ms": 0.0785
+      }
+    },
+    {
+      "rules": 1000,
+      "registrationMs": 6.6,
+      "hitChecks": 2,
+      "missChecks": 0,
+      "hit": {
+        "medianMs": 0.0287,
+        "p95Ms": 0.0483
+      },
+      "miss": {
+        "medianMs": 0.0134,
+        "p95Ms": 0.0584
+      }
+    },
+    {
+      "rules": 10000,
+      "registrationMs": 57.07,
+      "hitChecks": 2,
+      "missChecks": 0,
+      "hit": {
+        "medianMs": 0.0229,
+        "p95Ms": 0.045
+      },
+      "miss": {
+        "medianMs": 0.0132,
+        "p95Ms": 0.0255
+      }
+    },
+    {
+      "rules": 100000,
+      "registrationMs": 458.06,
+      "hitChecks": 2,
+      "missChecks": 0,
+      "hit": {
+        "medianMs": 0.0215,
+        "p95Ms": 0.0255
+      },
+      "miss": {
+        "medianMs": 0.0133,
+        "p95Ms": 0.0185
+      }
+    }
+  ],
+  "sharedMaterialRules": [
+    {
+      "rules": 10,
+      "genericChecks": 0,
+      "hitChecks": 2,
+      "medianMs": 0.0226,
+      "p95Ms": 0.0534
+    },
+    {
+      "rules": 1000,
+      "genericChecks": 0,
+      "hitChecks": 2,
+      "medianMs": 0.0227,
+      "p95Ms": 0.0404
+    },
+    {
+      "rules": 10000,
+      "genericChecks": 0,
+      "hitChecks": 2,
+      "medianMs": 0.0223,
+      "p95Ms": 0.0315
+    },
+    {
+      "rules": 100000,
+      "genericChecks": 0,
+      "hitChecks": 2,
+      "medianMs": 0.0216,
+      "p95Ms": 0.1157
+    }
+  ],
+  "queue": [
+    {
+      "items": 10,
+      "candidateChecks": 0,
+      "medianMs": 0.0243,
+      "p95Ms": 0.1419
+    },
+    {
+      "items": 100,
+      "candidateChecks": 0,
+      "medianMs": 0.0913,
+      "p95Ms": 2.6012
+    },
+    {
+      "items": 1000,
+      "candidateChecks": 0,
+      "medianMs": 0.4741,
+      "p95Ms": 0.9495
+    },
+    {
+      "items": 10000,
+      "candidateChecks": 0,
+      "medianMs": 4.3939,
+      "p95Ms": 5.6168
+    }
+  ],
+  "wildcardFallback": [
+    {
+      "rules": 10,
+      "candidateChecks": 0,
+      "medianMs": 0.0123,
+      "p95Ms": 0.0587
+    },
+    {
+      "rules": 1000,
+      "candidateChecks": 0,
+      "medianMs": 0.0104,
+      "p95Ms": 0.0149
+    },
+    {
+      "rules": 100000,
+      "candidateChecks": 0,
+      "medianMs": 0.0108,
+      "p95Ms": 0.0246
+    }
+  ]
+}

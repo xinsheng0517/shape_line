@@ -51,6 +51,7 @@ const V3Runtime = {
       for (const key of ['item', 'inA', 'inB', 'outA', 'outB', 'proc']) c[key] = null;
       c.queueA = []; c.queueB = []; c.cd = 1; c.status = ''; c.nextPort = 0;
       c.autoHalves = [];
+      c.synthesisRevision = 0; c.synthesisCache = null;
     }
     Object.assign(G.v3, this.supply(G.v3.def));
     G.v3.deliveredItems = []; G.v3.discardedItems = []; G.v3.discardReasons = [];
@@ -85,7 +86,7 @@ const V3Runtime = {
     return shapes.flatMap(shape => shape.units.map(unit => unit.id));
   },
   accepts(c, sx, sy, it) {
-    if (!it || !it.shape || it.shape.ruleset !== 'petal-v3') return null;
+    if (!it || !PetalV3.validItem(it.shape)) return null;
     const d = DIRV[c.dir], back = sx === c.x - d[0] && sy === c.y - d[1];
     const r = DIRV[(c.dir + 1) % 4], l = DIRV[(c.dir + 3) % 4];
     if (c.type === 'hub') return PetalV3.isFinished(it.shape, [G.v3.def.recipeId]) &&
@@ -100,20 +101,16 @@ const V3Runtime = {
     if (c.type === 'rotator' && !back) return null;
     if (!port || !['cutter', 'merger', 'rotator'].includes(c.type)) return null;
     if (c.type === 'cutter' && !PetalV3.cut(it.shape, c.machineMode || 'auto')) return null;
-    if (c.type === 'merger' && (c.machineMode || 'auto') === 'auto' &&
-        it.shape.stage === 'quarter') {
-      const expected = G.target.units.find(unit => unit.quadrant === it.shape.quadrant);
-      if (!expected || expected.shapeKind !== it.shape.shapeKind) return 'discard';
-    }
     return (c[port] || []).length < V3_QUEUE_CAPACITY ? port : null;
   },
   blockReason(dest, it) {
     if (!dest) return '下游未连接';
     if (dest.type === 'hub') {
-      if (it.shape.stage !== 'finished') return '原料尚未完成二级切割与合并';
-      return '目标配方或朝向不符';
+      return '物料结构与关卡目标不符';
     }
     if (dest.type === 'belt' && dest.item) return '下游传送带已满';
+    if (dest.type === 'cutter' && !PetalV3.cut(it.shape, dest.machineMode || 'auto'))
+      return '该切割方向无法把当前结构分成两份';
     return '下游入口未对齐或缓存已满';
   },
   outletStatus(c) {
@@ -128,7 +125,7 @@ const V3Runtime = {
         ? '等待运输' : this.blockReason(dest, it);
       waiting.push(label + (reason === '下游未连接' ? '未连接，产物待取' : '：' + reason));
     }
-    return waiting.join('；');
+    return (c.type === 'merger' && waiting.length ? '合成完成；' : '') + waiting.join('；');
   },
   tick() {
     if (!G.v3 || !G.v3.running || G.paused || G.won) return;
@@ -157,14 +154,18 @@ const V3Runtime = {
         if (G.delivered >= G.v3.def.need) challengeWin();
       } else if (port === 'discard') {
         G.v3.discardedItems.push(it.shape);
-        const reason = dest.type === 'merger' ? '非目标瓣' : '玩家垃圾桶';
+        const reason = '玩家垃圾桶';
         G.v3.discardReasons.push({ itemId: it.shape.itemId, reason });
         dest.status = reason + '已回收';
         burst(dest.x, dest.y, '#6a7286', 5);
       } else {
         it.fx = c.x; it.fy = c.y; it.moveTick = G.tickCount;
         if (port === 'item') dest.item = it;
-        else { if (!dest[port]) dest[port] = []; dest[port].push(it); }
+        else {
+          if (!dest[port]) dest[port] = [];
+          dest[port].push(it);
+          dest.synthesisRevision = (dest.synthesisRevision || 0) + 1;
+        }
       }
     }
   },
@@ -205,47 +206,7 @@ const V3Runtime = {
       }
       if (c.outA || c.outB) { c.status = this.outletStatus(c); continue; }
       if (c.type === 'merger') {
-        const auto = (c.machineMode || 'auto') === 'auto';
-        if (auto && c.autoHalves.length >= 2) {
-          let final = null, pair = null;
-          for (let i = 0; i < c.autoHalves.length && !final; i++)
-            for (let j = i + 1; j < c.autoHalves.length && !final; j++) {
-              const candidate = PetalV3.merge(c.autoHalves[i], c.autoHalves[j]);
-              if (candidate && candidate.recipeId === G.v3.def.recipeId) {
-                final = candidate; pair = [i, j];
-              }
-            }
-          if (final) {
-            c.autoHalves.splice(pair[1], 1); c.autoHalves.splice(pair[0], 1);
-            c.proc = { shape: final, t: PROC_TICKS, autoStage: 'final' };
-            c.status = '最终合并中'; continue;
-          }
-        }
-        const all = c.queueA.concat(c.queueB).sort((a, b) =>
-          (a.moveTick || 0) - (b.moveTick || 0) ||
-          String(a.shape.itemId).localeCompare(String(b.shape.itemId)));
-        let match = null;
-        for (let i = 0; i < all.length && !match; i++)
-          for (let j = i + 1; j < all.length && !match; j++) {
-            const shape = PetalV3.merge(all[i].shape, all[j].shape);
-            if (!shape) continue;
-            if (auto && shape.stage === 'mixed-half') {
-              const expected = G.v3.def.recipeId;
-              const wanted = shape.side === 'L' ? expected.slice(2, 4) : expected.slice(5, 7);
-              if (shape.recipeId !== 'H_' + wanted) continue;
-            }
-            if (auto && shape.stage === 'finished' && shape.recipeId !== G.v3.def.recipeId) continue;
-            if (c.machineMode === 'half' && shape.stage !== 'mixed-half') continue;
-            if (c.machineMode === 'final' && shape.stage !== 'finished') continue;
-            match = { a: all[i], b: all[j], shape };
-          }
-        if (match) {
-          c.queueA = c.queueA.filter(it => it !== match.a && it !== match.b);
-          c.queueB = c.queueB.filter(it => it !== match.a && it !== match.b);
-          c.proc = { shape: match.shape, t: PROC_TICKS,
-            autoStage: auto && match.shape.stage === 'mixed-half' ? 'half' : null };
-          c.status = '合并中';
-        } else c.status = all.length ? '等待可配对材料' : '等待材料';
+        this.synthesize(c);
         continue;
       }
       const choices = c.nextPort === 1 ? ['queueB', 'queueA'] : ['queueA', 'queueB'];
@@ -259,6 +220,71 @@ const V3Runtime = {
       c.proc = { shape: result[0], shapeB: result[1] || null, t: PROC_TICKS };
       c.status = '加工中';
     }
+  },
+  synthesisMode(c) {
+    if (c.machineMode === 'stack') return 'stack';
+    if (['join', 'half', 'final'].includes(c.machineMode)) return 'join';
+    return 'auto';
+  },
+  synthesize(c) {
+    // Old internal halves and both physical inlet buffers share one view.
+    // Port A precedes B for ordered stacking; each inlet preserves arrival order.
+    const entries = [
+      ...c.autoHalves.map(shape => ({ shape, container: c.autoHalves, value: shape })),
+      ...c.queueA.map(item => ({ shape: item.shape, container: c.queueA, value: item })),
+      ...c.queueB.map(item => ({ shape: item.shape, container: c.queueB, value: item })),
+    ];
+    if (!entries.length) { c.status = '等待材料'; return; }
+    const engine = PetalV3.engine;
+    const mode = this.synthesisMode(c);
+    const key = [c.synthesisRevision || 0, engine.revision || engine.version || 0,
+      mode, c.ruleId || '', entries.length].join('|');
+    let selected;
+    if (c.synthesisCache && c.synthesisCache.key === key &&
+        c.synthesisCache.values.every((value, i) => value === entries[i].value)) {
+      selected = c.synthesisCache.selected;
+    } else {
+      const items = entries.map(entry => entry.shape);
+      if (mode === 'auto' && !c.ruleId) {
+        // Building a line while it runs can fill one inlet before the other.
+        // Join complementary positions first, even behind duplicate early items.
+        selected = engine.select(items, {mode:'auto',genericMode:'join'});
+        if (!selected.ok && selected.reason === 'no-compatible-inputs') {
+          const other = entries.findIndex(entry => entry.container !== entries[0].container);
+          if (other >= 0) {
+            // Overlap still stacks automatically across distinct inlet buffers.
+            // Explicit stack mode / registered rules also support one-inlet stacks.
+            const indices = [0, other];
+            const fallback = engine.select(indices.map(index => items[index]), {mode:'auto'});
+            selected = {...fallback, indices:fallback.indices.map(index => indices[index])};
+          } else selected = {...selected, pending:true, reason:'waiting-for-complementary-inputs'};
+        }
+      } else selected = engine.select(items, {mode, ruleId:c.ruleId || undefined});
+      c.synthesisCache = {key, values:entries.map(entry => entry.value), selected};
+    }
+    if (!selected.ok) {
+      c.status = selected.reason === 'waiting-for-complementary-inputs' ? '等待互补位置的材料，重复片已保留' :
+        selected.pending ? '等待规则所需的其余输入' :
+        selected.reason === 'budget-exceeded' ? '匹配工作预算已用完，输入已保留' :
+        '等待可合成材料：' + (selected.reason || '至少需要两件物料');
+      return;
+    }
+    const chosen = selected.indices.map(index => entries[index]);
+    if (!chosen.length || chosen.some(entry => !PetalV3.validItem(entry.shape))) {
+      c.status = '物料身份无效'; return;
+    }
+    const result = PetalV3.mergeMany(chosen.map(entry => entry.shape),
+      {mode, ruleId:selected.result.ruleId || c.ruleId || undefined});
+    if (!result) { c.status = '物料冲突，输入已保留'; return; }
+    for (const entry of chosen) {
+      const index = entry.container.indexOf(entry.value);
+      if (index < 0) { c.status = '输入发生变化，等待下一次匹配'; return; }
+    }
+    for (const entry of chosen) entry.container.splice(entry.container.indexOf(entry.value), 1);
+    c.synthesisRevision = (c.synthesisRevision || 0) + 1;
+    c.synthesisCache = null;
+    c.proc = {shape:result, t:PROC_TICKS};
+    c.status = '合成中 · ' + chosen.length + ' 输入';
   },
 };
 

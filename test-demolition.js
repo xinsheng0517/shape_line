@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 function boot(rule) {
-  const files = ['levels.js', 'blueprint.js'];
+  const files = ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'blueprint.js'];
   if (rule === 'v2') files.push('trapezoid.js');
   if (rule === 'v3') files.push('petal-v3.js');
   files.push('challenges.js');

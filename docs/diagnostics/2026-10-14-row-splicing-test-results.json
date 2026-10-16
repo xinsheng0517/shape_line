@@ -1,0 +1,269 @@
+{
+  "checkedAt": "2026-10-14T18:19:07.979Z",
+  "tests": [
+    {
+      "file": "test-blueprint-file-ui.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_BLUEPRINT_FILE_UI_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-blueprint-file.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_BLUEPRINT_FILE_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-blueprint-legacy-local.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_BLUEPRINT_LEGACY_LOCAL_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-blueprint-v2.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_BLUEPRINT_V2_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-c4-start.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "C4_START_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-demolition.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_DEMOLITION_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-headless.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "L1 直通: PASS (tick 30)\nL2 切割: PASS (tick 32)\nL2 错误形状拒收: PASS (正确拒收，未过关)\nL3 旋转: PASS (tick 34)\nL4 合并: PASS (tick 44)\nL5 切星: PASS (tick 32)\nL6 双转: PASS (tick 36)\nL7 双拼: PASS (tick 44)\nL8 传送带用量: 19 / 预算 20\nL8 精打细算: PASS (tick 34)\nALL_SIM_TESTS_PASS\n蓝图系统: PASS\nALL_BP_TESTS_PASS\n撤销重做: PASS\nALL_UNDO_TESTS_PASS\n自由模式: PASS (交付 1，在途 11)\n模式互切复位: PASS\nALL_FREE_TESTS_PASS\n新目标·全星: PASS (设备 30)\n新目标·下半方: PASS (设备 25)\n新目标·左半圆: PASS (设备 31)\n新目标·上半圆: PASS (设备 31)\n新目标·右方左圆: PASS (设备 61)\n新目标·上圆下星: PASS (设备 61)\nALL_NEWTARGET_TESTS_PASS\nC1 开门红: PASS (成绩 0.0 秒，3 星)\nC2 极简: PASS (成绩 6 台设备，3 星)\nC3 紧缩: PASS (成绩 传送带 8 条，3 星)\nC4 并行: PASS (400tick 交付 270 个，2 星)\nC5 旋转大师: PASS (成绩 0.0 秒 · 交付 50 个，3 星)\nC6 终章: PASS (成绩 23 台 · 0.0 秒，3 星)\nC3 蓝图预算联动: PASS (「切割机」预算不足（需 1）)\nALL_CHALLENGE_TESTS_PASS\n每日挑战确定性: PASS (2026-10-14 目标[SSTT] 上限 73 台)\n每日结算存档: PASS (stars=3)\n镜像传送带流向: PASS\nALL_DAILY_TESTS_PASS\nALL_STATE_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-infinite-supply.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_INFINITE_SUPPLY_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-l6-blueprint-stars.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "L6_BLUEPRINT_STARS_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-mobile-landscape.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "MOBILE_LANDSCAPE_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-petal-v3.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_PETAL_V3_PASS (81 combinations, dynamic materials/rules/operators, identity, layers, recutting, rotations)\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-render-v3.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_RENDER_V3_PASS\nALL_SYNTHESIS_RENDER_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-row-splicing.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_ROW_SPLICING_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-square-migration.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_SQUARE_MIGRATION_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-synthesis-classic.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_SYNTHESIS_CLASSIC_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-synthesis-engine.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "PASS synthesis engine: geometry, identity, registries, selection, cache, dynamic planning\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-synthesis-performance.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "{\n  \"exactRules\": [\n    {\n      \"rules\": 10,\n      \"registrationMs\": 0.55,\n      \"hitChecks\": 2,\n      \"missChecks\": 0,\n      \"hit\": {\n        \"medianMs\": 0.0312,\n        \"p95Ms\": 0.2125\n      },\n      \"miss\": {\n        \"medianMs\": 0.0143,\n        \"p95Ms\": 0.0744\n      }\n    },\n    {\n      \"rules\": 1000,\n      \"registrationMs\": 6.29,\n      \"hitChecks\": 2,\n      \"missChecks\": 0,\n      \"hit\": {\n        \"medianMs\": 0.0245,\n        \"p95Ms\": 0.0295\n      },\n      \"miss\": {\n        \"medianMs\": 0.0136,\n        \"p95Ms\": 0.0249\n      }\n    },\n    {\n      \"rules\": 10000,\n      \"registrationMs\": 49.22,\n      \"hitChecks\": 2,\n      \"missChecks\": 0,\n      \"hit\": {\n        \"medianMs\": 0.0268,\n        \"p95Ms\": 0.0375\n      },\n      \"miss\": {\n        \"medianMs\": 0.0145,\n        \"p95Ms\": 0.0284\n      }\n    },\n    {\n      \"rules\": 100000,\n      \"registrationMs\": 487.67,\n      \"hitChecks\": 2,\n      \"missChecks\": 0,\n      \"hit\": {\n        \"medianMs\": 0.0229,\n        \"p95Ms\": 0.0298\n      },\n      \"miss\": {\n        \"medianMs\": 0.014,\n        \"p95Ms\": 0.0194\n      }\n    }\n  ],\n  \"sharedMaterialRules\": [\n    {\n      \"rules\": 10,\n      \"genericChecks\": 0,\n      \"hitChecks\": 2,\n      \"medianMs\": 0.0235,\n      \"p95Ms\": 0.0449\n    },\n    {\n      \"rules\": 1000,\n      \"genericChecks\": 0,\n      \"hitChecks\": 2,\n      \"medianMs\": 0.0234,\n      \"p95Ms\": 0.0303\n    },\n    {\n      \"rules\": 10000,\n      \"genericChecks\": 0,\n      \"hitChecks\": 2,\n      \"medianMs\": 0.0227,\n      \"p95Ms\": 0.032\n    },\n    {\n      \"rules\": 100000,\n      \"genericChecks\": 0,\n      \"hitChecks\": 2,\n      \"medianMs\": 0.0228,\n      \"p95Ms\": 0.0932\n    }\n  ],\n  \"queue\": [\n    {\n      \"items\": 10,\n      \"candidateChecks\": 0,\n      \"medianMs\": 0.0208,\n      \"p95Ms\": 0.0471\n    },\n    {\n      \"items\": 100,\n      \"candidateChecks\": 0,\n      \"medianMs\": 0.0906,\n      \"p95Ms\": 0.1205\n    },\n    {\n      \"items\": 1000,\n      \"candidateChecks\": 0,\n      \"medianMs\": 0.5184,\n      \"p95Ms\": 2.348\n    },\n    {\n      \"items\": 10000,\n      \"candidateChecks\": 0,\n      \"medianMs\": 4.7291,\n      \"p95Ms\": 6.9001\n    }\n  ],\n  \"wildcardFallback\": [\n    {\n      \"rules\": 10,\n      \"candidateChecks\": 0,\n      \"medianMs\": 0.0114,\n      \"p95Ms\": 0.0573\n    },\n    {\n      \"rules\": 1000,\n      \"candidateChecks\": 0,\n      \"medianMs\": 0.0107,\n      \"p95Ms\": 0.0184\n    },\n    {\n      \"rules\": 100000,\n      \"candidateChecks\": 0,\n      \"medianMs\": 0.0103,\n      \"p95Ms\": 0.025\n    }\n  ]\n}\nPASS synthesis performance: exact candidate count independent of unrelated rules; queue visited once per selection\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-synthesis-persistence.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_SYNTHESIS_PERSISTENCE_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-synthesis-runtime.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_SYNTHESIS_RUNTIME_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-synthesis-ui.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "PASS occupied mode change keeps machine and default unchanged\nPASS rule survives blueprint transforms and file roundtrip\nPASS legacy and geometric merger modes remain portable\nPASS configuration editor exports and atomically rejects malformed JSON\nPASS layer inspection preserves every real layer and material name\nPASS layer inspection reports world slots after rotation\nPASS registered rule selection reaches placement and blocks occupied changes\nPASS config text editor applies valid editable JSON and renders every layer\nPASS placement undo and redo retain explicit rule and mode\nPASS empty machine mode and rule edits are undoable\nPASS source and bundle load synthesis dependencies before facade\nALL_SYNTHESIS_UI_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-tab-scroller.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "TAB_SCROLLER_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-trapezoid.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_TRAPEZOID_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-v2-runtime.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "C1 V2 PASS, tick 88, belts 38\nC2 V2 PASS, tick 112, belts 46\nC5 V2 PASS, tick 98, belts 37\nC6 V2 PASS, tick 132, belts 48\nALL_V2_RUNTIME_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-v3-integration.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_V3_INTEGRATION_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-v3-runtime.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "C1 free synthesis reference PASS at tick 78, belts 37, extractors 2\nC2 free synthesis reference PASS at tick 108, belts 63, extractors 3\nC5 free synthesis reference PASS at tick 80, belts 35, extractors 2\nC6 free synthesis reference PASS at tick 124, belts 67, extractors 3\nALL_V3_RUNTIME_TESTS_PASS\n",
+      "stderr": ""
+    },
+    {
+      "file": "test-v3-ui.js",
+      "status": 0,
+      "passed": true,
+      "stdout": "ALL_V3_UI_PASS\n",
+      "stderr": ""
+    }
+  ],
+  "syntax": [
+    {
+      "file": "build.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/blueprint.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/challenge-v2.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/challenge-v3.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/challenges.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/core.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/input.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/levels.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/petal-v3.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/render.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/sim.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/synthesis-config.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/synthesis-engine.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "js/trapezoid.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "test-row-splicing.js",
+      "status": 0,
+      "passed": true
+    },
+    {
+      "file": "test-support/row-splicing-reference.js",
+      "status": 0,
+      "passed": true
+    }
+  ]
+}

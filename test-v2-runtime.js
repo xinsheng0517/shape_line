@@ -3,7 +3,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const assert = require('assert');
-const files = ['levels.js', 'blueprint.js', 'trapezoid.js', 'challenges.js', 'challenge-v2.js', 'core.js', 'sim.js', 'input.js'];
+const files = ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'blueprint.js', 'trapezoid.js', 'challenges.js', 'challenge-v2.js', 'core.js', 'sim.js', 'input.js'];
 assert(files.every(f => fs.existsSync(path.join(__dirname, 'js', f))), 'v2 runtime and domain modules must exist');
 const el = () => ({style:{},classList:{add(){},remove(){},toggle(){}},appendChild(){},addEventListener(){},querySelector:()=>el(),textContent:'',innerHTML:''});
 const context = {console, performance, setTimeout:()=>0, clearTimeout(){}, setInterval(){}, window:{addEventListener(){}}, document:{getElementById:()=>el(),createElement:()=>el()}, localStorage:{getItem:()=>null,setItem(){}}, assert};

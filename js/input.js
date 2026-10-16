@@ -364,44 +364,166 @@ const UI = {
       const label = document.createElement('label'); label.className = 'bplabel';
       label.textContent = '切割机模式 · 每次入机只切一级 ';
       const select = document.createElement('select');
-      select.title = '自动档根据完整原坯或半块选择纵切或横切；二次切割需重新入机';
+      select.title = '原坯可直接纵切或横切，各层按局部槽位切割；自动档先判断纵切，再判断横切；再次切割需重新入机';
       for (const [value,name] of [['auto','自动判断'],['vertical','纵切'],['horizontal','横切']]) {
         const option = document.createElement('option'); option.value=value; option.textContent=name;
         select.appendChild(option);
       }
       select.value = G.v3.toolModes.cutter;
       select.addEventListener('change', () => {
-        G.v3.toolModes.cutter = select.value;
-        const pos = G.v3.selected, cell = pos && cellAt(pos.x,pos.y);
-        if (cell && cell.type === 'cutter') {
-          if (V3Runtime.occupied(cell)) { this.toast('机器有物品时不能切换模式'); select.value=cell.machineMode; return; }
-          cell.machineMode = select.value;
-        }
+        this.setSynthesisMode('cutter', select);
       });
       label.appendChild(select); bar.appendChild(label);
       const mergeLabel = document.createElement('label'); mergeLabel.className = 'bplabel';
       mergeLabel.textContent = '混合机模式 ';
       const mergeSelect = document.createElement('select');
-      for (const [value, name] of [['auto','自动'],['half','半块'],['final','成品']]) {
+      mergeSelect.title = '自由拼接优先互补位置；同入口重复片等待另一侧，不抢先叠层。两入口重叠可自动层叠；单入口主动叠层请选层叠模式。旧 half/final 兼容平面拼接。';
+      for (const [value, name] of [['auto','自由拼接＋重叠层叠'],['join','平面拼接（重叠拒绝）'],['stack','按顺序层叠'],['half','旧 half · 平面拼接'],['final','旧 final · 平面拼接']]) {
         const option = document.createElement('option'); option.value = value; option.textContent = name;
         mergeSelect.appendChild(option);
       }
       mergeSelect.value = G.v3.toolModes.merger;
       mergeSelect.addEventListener('change', () => {
-        G.v3.toolModes.merger = mergeSelect.value;
-        const pos = G.v3.selected, cell = pos && cellAt(pos.x,pos.y);
-        if (cell && cell.type === 'merger') {
-          if (V3Runtime.occupied(cell)) { this.toast('机器有物品时不能切换模式'); mergeSelect.value = cell.machineMode; return; }
-          cell.machineMode = mergeSelect.value;
-        }
+        this.setSynthesisMode('merger', mergeSelect);
       });
       mergeLabel.appendChild(mergeSelect); bar.appendChild(mergeLabel);
+      this.synthesisControls(bar);
       const reset = document.createElement('button'); reset.className='hbtn'; reset.textContent='重置供料，保留布线';
       reset.addEventListener('click', () => { V3Runtime.resetMaterial(); this.refreshChalProgress(); this.refreshBps(); });
       bar.appendChild(reset);
     }
     if (active === 'classic-v1') BUILTIN_BPS.forEach(bp => bar.appendChild(this._bpItem(bp, true)));
     Object.values(G.save.blueprints).forEach(bp => bar.appendChild(this._bpItem(bp, false)));
+  },
+
+  setSynthesisMode(type, select) {
+    const pos = G.v3.selected, cell = pos && cellAt(pos.x, pos.y);
+    if (cell && cell.type === type && V3Runtime.occupied(cell)) {
+      select.value = cell.machineMode || 'auto';
+      this.toast('机器有物品时不能切换模式');
+      return false;
+    }
+    if (cell && cell.type === type) {
+      Undo.begin(); Undo.rec('remove', cell.x, cell.y, cell.type, cell.dir);
+      cell.machineMode = select.value;
+      Undo.rec('place', cell.x, cell.y, cell.type, cell.dir); Undo.end();
+    }
+    G.v3.toolModes[type] = select.value;
+    return true;
+  },
+
+  exportSynthesisConfig() {
+    return JSON.stringify(PetalV3.engine.exportConfig(), null, 2);
+  },
+
+  exportSavedSynthesisConfig() {
+    const snapshot = Object.prototype.hasOwnProperty.call(G.save, 'synthesisConfig')
+      ? G.save.synthesisConfig : PetalV3.engine.exportConfig();
+    return JSON.stringify(snapshot, null, 2);
+  },
+
+  importSynthesisConfig(text) {
+    let config;
+    try { config = JSON.parse(text); } catch (error) { throw new Error('配置不是有效 JSON'); }
+    const snapshot = PetalV3.engine.importConfig(config);
+    G.save.synthesisConfig = snapshot;
+    G.synthesisConfigError = null;
+    persist();
+    return this.exportSynthesisConfig();
+  },
+
+  synthesisLayers(shape) {
+    const units = shape && shape.units || [];
+    const count = units.reduce((total,unit) => Math.max(total,(unit.layer || 0) + 1),
+      Math.max(1, shape && shape.layers && shape.layers.length || 0));
+    const layers = Array.from({length:count}, () => ({}));
+    const slots = ['TL','TR','BR','BL'], turns = ((shape && shape.orientation || 0) / 90) % 4;
+    units.forEach(unit => {
+      const slot = unit.slot || unit.quadrant, index = slots.indexOf(slot);
+      layers[unit.layer || 0][index < 0 ? slot : slots[(index + turns + 4) % 4]] = unit.shapeKind || unit.resource;
+    });
+    return layers;
+  },
+
+  synthesisControls(bar) {
+    const label = document.createElement('label'); label.className = 'bplabel'; label.textContent = '指定规则 ';
+    const select = document.createElement('select'); select.id = 'synthesis-rule';
+    const rules = PetalV3.engine.listRules();
+    const pos = G.v3.selected, selected = pos && cellAt(pos.x, pos.y);
+    const selectedId = selected && selected.type === 'merger' ? selected.ruleId || '' : G.v3.toolRuleId || '';
+    const choices = [{id:'',name:'自动匹配（含多输入）'}, ...rules];
+    if (selectedId && !rules.some(rule => rule.id === selectedId)) choices.push({id:selectedId,name:selectedId + '（未注册）'});
+    for (const rule of choices) {
+      const option = document.createElement('option'); option.value = rule.id;
+      option.textContent = (rule.name || rule.id) + (rule.enabled === false ? '（已停用）' : '');
+      option.disabled = rule.enabled === false;
+      select.appendChild(option);
+    }
+    select.value = selectedId;
+    select.addEventListener('change', () => {
+      const position = G.v3.selected, cell = position && cellAt(position.x, position.y);
+      if (cell && cell.type === 'merger') {
+        if (V3Runtime.occupied(cell)) { select.value = cell.ruleId || ''; this.toast('机器有物品时不能切换规则'); return; }
+        Undo.begin(); Undo.rec('remove', cell.x, cell.y, cell.type, cell.dir);
+        if (select.value) cell.ruleId = select.value; else delete cell.ruleId;
+        Undo.rec('place', cell.x, cell.y, cell.type, cell.dir); Undo.end();
+      }
+      G.v3.toolRuleId = select.value;
+    });
+    label.appendChild(select); bar.appendChild(label);
+    const meaning = document.createElement('p'); meaning.className = 'synthesis-note';
+    meaning.textContent = '自由拼接优先互补位置；同入口重复片保留等待，两入口重叠自动叠层，不限制层数。单入口叠层可选层叠模式。绑定规则后按规则加工。'; bar.appendChild(meaning);
+    if (selected && selected.status) {
+      const status = document.createElement('p'); status.className = 'synthesis-note'; status.textContent = '机器状态：' + selected.status; bar.appendChild(status);
+    }
+    const inspect = document.createElement('button'); inspect.className = 'hbtn'; inspect.textContent = '查看每层结构';
+    inspect.addEventListener('click', () => {
+      const position = G.v3.selected, cell = position && cellAt(position.x, position.y);
+      const item = cell && (cell.outA || cell.outB || cell.item || cell.proc || (cell.queueA || [])[0] || (cell.queueB || [])[0]);
+      this.showSynthesisLayers(item && item.shape || G.target, bar);
+    }); bar.appendChild(inspect);
+    const editor = document.createElement('details'); editor.className = 'synthesis-config';
+    const heading = document.createElement('summary'); heading.textContent = '编辑 / 导入 / 导出材料与规则 JSON'; editor.appendChild(heading);
+    const text = document.createElement('textarea'); text.id = 'synthesis-config-text'; text.spellcheck = false;
+    text.setAttribute && text.setAttribute('aria-label', '材料与规则 JSON 配置'); text.value = this.exportSynthesisConfig(); editor.appendChild(text);
+    const status = document.createElement('p'); status.className = 'synthesis-note';
+    status.textContent = G.synthesisConfigError || '编辑后点击应用并自动保存；校验失败保留当前全部配置。导出可复制文本保存。';
+    const apply = document.createElement('button'); apply.className = 'hbtn'; apply.textContent = '校验并应用 JSON';
+    apply.addEventListener('click', () => {
+      try { text.value = this.importSynthesisConfig(text.value); this.refreshBps(); this.toast('材料与规则配置已应用'); }
+      catch (error) { status.textContent = '配置未应用：' + error.message; }
+    }); editor.appendChild(apply);
+    const reload = document.createElement('button'); reload.className = 'hbtn'; reload.textContent = '导出当前配置到文本';
+    reload.addEventListener('click', () => { text.value = this.exportSynthesisConfig(); status.textContent = '已导出，可复制或继续编辑。'; });
+    editor.appendChild(reload);
+    if (G.synthesisConfigError) {
+      const recover = document.createElement('button'); recover.className = 'hbtn'; recover.textContent = '导出未恢复的存档配置';
+      recover.addEventListener('click', () => {
+        text.value = this.exportSavedSynthesisConfig();
+        status.textContent = '已导出未恢复的原存档配置；可复制保存或修正后重新应用。';
+      });
+      editor.appendChild(recover);
+    }
+    editor.appendChild(status); bar.appendChild(editor);
+  },
+
+  showSynthesisLayers(shape, bar) {
+    if (!shape || !shape.units) { this.toast('选择有物料的机器以查看每层结构'); return; }
+    const panel = document.createElement('details'); panel.className = 'synthesis-layers'; panel.open = true;
+    const layers = this.synthesisLayers(shape), heading = document.createElement('summary');
+    heading.textContent = '共 ' + layers.length + ' 层 · 从底到顶'; panel.appendChild(heading);
+    layers.forEach((layer, index) => {
+      const row = document.createElement('div'); row.className = 'synthesis-layer';
+      const canvas = document.createElement('canvas'); canvas.width = 72; canvas.height = 72;
+      Render.shapeIcon(canvas.getContext('2d'), {kind:'synthesis',orientation:shape.orientation || 0,
+        units:shape.units.filter(unit => (unit.layer || 0) === index).map(unit => ({...unit,layer:0}))}, 36,36,26);
+      row.appendChild(canvas);
+      const text = document.createElement('span'); text.textContent = '第 ' + (index + 1) + ' 层：' + ['TL','TR','BL','BR'].map(slot => {
+        const id = layer[slot], material = id && PetalV3.engine.getMaterial(id);
+        return slot + '=' + (id ? (material && material.name || id) + ' [' + id + ']' : '空');
+      }).join(' · '); row.appendChild(text); panel.appendChild(row);
+    });
+    bar.appendChild(panel);
   },
 
   _bpItem(bp, builtin) {
@@ -738,6 +860,7 @@ const Input = {
       if(c&&MACHINE_TYPES.includes(c.type)&&c.type!=='belt') {
         G.v3.selected={x:p.x,y:p.y};
         if(c.machineMode && (c.type==='cutter'||c.type==='merger')) G.v3.toolModes[c.type]=c.machineMode;
+        if(c.type==='merger') G.v3.toolRuleId=c.ruleId||'';
         UI.toast(c.status||'机器已选中；可在蓝图库侧栏调整空机器模式');
         UI.refreshBps();
         return;
@@ -815,7 +938,7 @@ const Input = {
   },
 
   // 统一放置入口：校验边界/占用/预算，成功则建格、扣预算、计数
-  tryPlace(x, y, type, dir, quiet, machineMode) {
+  tryPlace(x, y, type, dir, quiet, machineMode, ruleId) {
     if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return false;
     if (G.won || G.paused) return false;
     if (G.grid[y][x]) return false;
@@ -830,6 +953,7 @@ const Input = {
     G.grid[y][x] = mkCell(type, x, y, dir);
     if(G.v2&&(type==='cutter'||type==='merger')) G.grid[y][x].machineMode=machineMode||G.v2.toolModes[type];
     if(G.v3&&(type==='cutter'||type==='merger')) G.grid[y][x].machineMode=machineMode||G.v3.toolModes[type]||'auto';
+    if(G.v3&&type==='merger'&&(ruleId===undefined?G.v3.toolRuleId:ruleId)) G.grid[y][x].ruleId=ruleId===undefined?G.v3.toolRuleId:ruleId;
     if (G.budget[type] !== Infinity) G.budget[type]--;
     G.used[type]++;
     Undo.rec('place', x, y, type, dir); // 宪法7：统一入口写撤销栈
@@ -914,7 +1038,7 @@ const Input = {
     }
     Undo.begin(); // 一次粘贴 = 一个撤销动作组
     let placed = false;
-    for (const c of bp.cells) if (this.tryPlace(px + c.dx, py + c.dy, c.type, c.dir, true, c.machineMode)) placed = true;
+    for (const c of bp.cells) if (this.tryPlace(px + c.dx, py + c.dy, c.type, c.dir, true, c.machineMode, c.ruleId || '')) placed = true;
     Undo.end();
     if (placed && G.mode === 'tutorial') G.blueprintUsed = true;
     UI.toast('已粘贴「' + bp.name + '」（' + bp.cells.length + ' 台）');

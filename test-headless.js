@@ -5,7 +5,7 @@ global.window = { addEventListener() {} };
 const noop = () => {};
 global.UI = { refreshLevel: noop, refreshBudget: noop, refreshToolbar: noop, syncPause: noop, refreshLevels: noop, showWin: noop, toast: noop, syncSound: noop, showMenu: noop, hideMenu: noop, syncSpeed: noop, refreshBps: noop, showChalWin: noop, refreshChalProgress: noop };
 
-const src = ['levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js'].map(f => fs.readFileSync(dir + f, 'utf8')).join('\n');
+const src = ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js'].map(f => fs.readFileSync(dir + f, 'utf8')).join('\n');
 
 const test = `
 ;globalThis.__fail = 0;

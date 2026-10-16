@@ -9,11 +9,12 @@ const ctx = new Proxy({}, { get(_target, name) {
   if (name === 'canvas') return { width: 32, height: 32 };
   if (name === 'createLinearGradient') return (...args) => { calls.push([name, ...args]); return { addColorStop() {} }; };
   return (...args) => { calls.push([name, ...args]); };
-}, set() { return true; } });
+}, set(_target,name,value) { calls.push(['set',name,value]); return true; } });
 const context = { console, Math, TILE: 32, MOVE_EVERY: 2, GRID_W: 12, GRID_H: 12,
   DIRV: [[0,-1],[1,0],[0,1],[-1,0]],
   G: { tickCount: 0, v2: null, v3: null },
   document: { createElement() { return { width: 32, height: 32, getContext() { return ctx; } }; } },
+  PetalV3:{engine:{getMaterial(id){return id==='copper-wire'?{name:'铜线',color:'#123456',outline:'circle'}:null;}}},
   SHAPE_COLOR: { T: '#58a6ff', R: '#58a6ff', C: '#ffbb66', S: '#cc88ff' } };
 vm.createContext(context);
 vm.runInContext(src + `
@@ -98,6 +99,7 @@ for (const dir of [0,1,2,3]) {
 calls.length=0;
 context.G.hover={x:5,y:6};
 context.G.grid[6][5].status='前出口未连接，产物待取；侧出口未连接，产物待取';
+const originalShapeIcon = context.RenderForTest.shapeIcon;
 context.RenderForTest.shapeIcon=()=>{};
 context.RenderForTest.v2Hover(ctx);
 const hoverTexts=calls.filter(call=>call[0]==='fillText').map(call=>call[1]);
@@ -106,3 +108,15 @@ assert(hoverTexts.some(line=>line.includes('前出口:半块') && line.includes(
 assert(hoverTexts.some(line=>line.includes('前出口未连接')),
   'hover explains why products are waiting');
 console.log('ALL_RENDER_V3_PASS');
+context.RenderForTest.shapeIcon=originalShapeIcon;
+
+calls.length=0;
+context.drawShape(ctx,{kind:'petal-v3',units:[{shapeKind:'copper-wire',slot:'TL',layer:0}]});
+assert(calls.some(c=>c[0]==='set'&&c[1]==='fillStyle'&&c[2]==='#123456'),'registered material uses its configured color');
+assert(calls.some(c=>c[0]==='arc'),'registered circle material uses its configured outline');
+calls.length=0;
+context.drawShape(ctx,{kind:'synthesis',units:[{shapeKind:'T',slot:'TL',layer:0},{shapeKind:'C',slot:'TL',layer:1}],layers:[{TL:'T'},{TL:'C'}]});
+assert.equal(calls.filter(c=>c[0]==='fill').length,2,'classic synthesis draws every actual layer');
+assert(calls.some(c=>c[0]==='fillText'&&c[1]==='2层'),'stacked structure displays its actual layer count');
+assert(calls.filter(c=>c[0]==='translate').length>=3,'layers are visibly offset instead of painting into one flat quadrant');
+console.log('ALL_SYNTHESIS_RENDER_PASS');

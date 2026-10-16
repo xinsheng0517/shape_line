@@ -1,0 +1,28 @@
+{
+  "checkedAt": "2026-10-14T17:19:36.459Z",
+  "files": [
+    {
+      "path": "F:/形状流水线/shape-line/dist/shape-line.html",
+      "bytes": 248962,
+      "sha256": "867e40d73a3e60aa2564fd424be265fc6e5b3069cfb007fba5c4d4ef62d866a5"
+    },
+    {
+      "path": "F:/形状流水线/形状流水线/形状流水线/dist/shape-line.html",
+      "bytes": 248962,
+      "sha256": "867e40d73a3e60aa2564fd424be265fc6e5b3069cfb007fba5c4d4ef62d866a5"
+    },
+    {
+      "path": "F:/形状流水线/形状流水线/形状流水线-单个可执行文件.html",
+      "bytes": 248962,
+      "sha256": "867e40d73a3e60aa2564fd424be265fc6e5b3069cfb007fba5c4d4ef62d866a5"
+    }
+  ],
+  "zip": {
+    "path": "F:/形状流水线/形状流水线/形状流水线-单个可执行文件.zip",
+    "bytes": 75676,
+    "sha256": "a75eee78706afd27e7a22bd3ca0f55d0c49b7ccc1e0e07cc4733e844adb137de",
+    "entry": "形状流水线-单个可执行文件.html",
+    "htmlSha256": "867e40d73a3e60aa2564fd424be265fc6e5b3069cfb007fba5c4d4ef62d866a5",
+    "contentVerified": true
+  }
+}

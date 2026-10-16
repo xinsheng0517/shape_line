@@ -21,7 +21,7 @@ const context = vm.createContext({
   document: { getElementById: element },
   Render: { drawPreview() {}, resize() {} },
 });
-for (const file of ['levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js']) {
+for (const file of ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'js', file), 'utf8'), context, { filename: file });
 }
 vm.runInContext(`

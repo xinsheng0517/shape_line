@@ -3,7 +3,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const assert = require('assert');
-const files = ['levels.js', 'petal-v3.js', 'challenges.js', 'challenge-v3.js', 'core.js', 'sim.js'];
+const files = ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'petal-v3.js', 'challenges.js', 'challenge-v3.js', 'core.js', 'sim.js'];
 const context = {
   console, performance, assert, setTimeout: () => 0, clearTimeout() {},
   window: { addEventListener() {} },
@@ -162,7 +162,7 @@ advance(2); assert(front.item && side.item,'both cutter exits flow through real 
 // Invalid stages must remain on the incoming belt, never clog the cutter queue.
 V3Runtime.load(0); G.v3.running=true;
 const rejecting=machine('cutter',5,5,1,'horizontal');
-const wrong=belt(4,5,1,PetalV3.raw('T','wrong-stage'));
+const wrong=belt(4,5,1,PetalV3.cut(PetalV3.cut(PetalV3.raw('T','wrong-stage'),'vertical')[0],'horizontal')[0]);
 advance(2); assert(wrong.item && !rejecting.queueA?.length);
 
 // Blocking one outlet retains both results and prevents a second processing job.
@@ -234,77 +234,93 @@ for(let i=0;i<80;i++) {
 }
 assert(G.v3.emitted>0);
 
-// One first-stage cutter feeds two second-stage cutters through real belts.
-// All transport uses permanent grid cells; no item is injected after start.
-function reference(index) {
+'use strict';
+// Real-grid reference factories. No items are injected and resource coordinates
+// remain the public challenge coordinates. Unused halves go to player trash.
+function buildSynthesisReference(index) {
   V3Runtime.load(index);
   const def=G.chalDef;
-  const required=new Set(G.target.units.map(unit=>unit.shapeKind));
-  const bx=8;
-  const firstCut=machine('cutter',bx,5,1,'auto');
-  const upperCut=machine('cutter',bx+3,5,1,'auto');
-  const lowerCut=machine('cutter',bx+1,8,1,'auto');
-  const autoMerger=machine('merger',bx+9,12,1,'auto');
-  for(let x=4;x<bx;x++) belt(x,5,1);
-  belt(bx+1,5,1); belt(bx+2,5,1);
-  belt(bx,6,2); belt(bx,7,2); belt(bx,8,1);
-  for(const [x,start] of [[bx+4,5],[bx+3,6],[bx+2,8],[bx+1,9]]) {
-    for(let y=start;y<12;y++) belt(x,y,2);
-    belt(x,12,1);
+  function place(type,x,y,dir=1,mode='auto') {
+    if(!G.grid[y] || G.grid[y][x]) throw Error('reference cell occupied '+x+','+y);
+    if(!(G.budget[type]>0)) throw Error('reference budget exhausted '+type);
+    const c=mkCell(type,x,y,dir); c.machineMode=mode; G.grid[y][x]=c;
+    G.used[type]++; if(G.budget[type]!==Infinity)G.budget[type]--;
+    return c;
   }
-  for(let x=bx+5;x<bx+9;x++) belt(x,12,1);
-  for(const resource of def.resources) {
-    if(!required.has(resource.type)) continue;
-    if(resource.x===2) {
-      machine('extractor',3,resource.y,1);
-      if(resource.y<5) {
-        for(let y=resource.y;y<5;y++) if(!G.grid[y][4]) belt(4,y,2);
-      } else {
-        for(let y=6;y<=resource.y;y++) if(!G.grid[y][4]) belt(4,y,0);
-      }
-    } else {
-      machine('extractor',19,resource.y,3);
-      for(let x=18;x>bx;x--) belt(x,2,3);
-      belt(bx,2,2); belt(bx,3,2); belt(bx,4,2);
+  function route(points,endDir) {
+    const cells=[];
+    for(let i=0;i<points.length-1;i++) {
+      let [x,y]=points[i]; const [tx,ty]=points[i+1];
+      if(x!==tx&&y!==ty)throw Error('reference diagonal route');
+      const dx=Math.sign(tx-x),dy=Math.sign(ty-y);
+      const dir=dx===1?1:dx===-1?3:dy===1?2:0;
+      while(x!==tx||y!==ty){cells.push([x,y,dir]);x+=dx;y+=dy;}
     }
+    cells.push([...points[points.length-1],endDir]);
+    for(const [x,y,dir] of cells)place('belt',x,y,dir);
   }
-  const hx=def.hub.x-1, hy=def.hub.y;
-  for(let x=bx+10;x<=hx;x++)
-    belt(x,12,x===hx?(hy<12?0:hy>12?2:1):1);
-  if(hy<12) for(let y=11;y>=hy;y--) belt(hx,y,y===hy?1:0);
-  if(hy>12) for(let y=13;y<=hy;y++) belt(hx,y,y===hy?1:2);
-  G.v3.running=true;
-  assertSupplyConserved(def.id+' initial');
-  for(let i=0;i<4000 && !G.won;i++) {
-    V3Runtime.tick();
-    if(i%10===0) assertSupplyConserved(def.id);
+  function leftHorizontal(y) {
+    place('extractor',3,y,1); place('belt',4,y,1);
+    return place('cutter',5,y,1,'horizontal');
   }
-  if(G.delivered!==def.need) console.log('REFERENCE_DIAG',def.id,G.delivered,G.v3.emitted,
-    firstCut.status,firstCut.queueA?.length,firstCut.queueB?.length,
-    upperCut.status,lowerCut.status,
-    autoMerger.status,autoMerger.queueA?.length,autoMerger.queueB?.length,
-    autoMerger.autoHalves?.map(h=>h.recipeId),
-    autoMerger.queueA?.map(q=>q.shape.quadrant+q.shape.shapeKind),
-    autoMerger.queueB?.map(q=>q.shape.quadrant+q.shape.shapeKind),
-    G.v3.discardedItems.length,
-    def.resources.map((r,i)=>[r.type,G.v3.stockByNode[i].length]));
-  assert.equal(G.delivered,def.need,
-    def.id+' external two-stage cutter layout must finish');
-  assert(firstCut && upperCut && lowerCut && autoMerger);
-  assert(G.v3.discardedItems.length>0);
-  assert(G.v3.discardReasons.every(row=>row.reason==='非目标瓣'));
-  if(Number.isFinite(def.budget.extractor))
-    assert(G.grid.flat().filter(c=>c?.type==='extractor').length<=def.budget.extractor);
-  if(Number.isFinite(def.budget.belt))
-    assert(G.grid.flat().filter(c=>c?.type==='belt').length<=def.budget.belt);
-  assertSupplyConserved(def.id+' completed');
-  const belts=G.grid.flat().filter(c=>c?.type==='belt').length;
-  const extractors=G.grid.flat().filter(c=>c?.type==='extractor').length;
-  assert.equal(G.used.belt,belts);
-  assert.equal(G.used.extractor,extractors);
-  if(index===0||index===4) assert.equal(def.stars(G),3,'low-difficulty route meets three-star belt threshold');
-  console.log(def.id+' external two-stage reference PASS at tick '+G.tickCount+
-    ', belts '+belts+', extractors '+extractors);
+  place('merger',12,10,2,'join');
+  if(index===0) {
+    leftHorizontal(3); place('trash',5,4);
+    route([[6,3],[12,3],[12,9]],2);
+    leftHorizontal(8); place('trash',6,8);
+    route([[5,9],[11,9],[11,10]],1);
+  } else if(index===4) {
+    leftHorizontal(8); place('trash',5,9);
+    route([[6,8],[12,8],[12,9]],2);
+    leftHorizontal(13); place('trash',6,13);
+    route([[5,14],[11,14],[11,10]],1);
+  } else if(index===1) {
+    leftHorizontal(3); place('trash',5,4);
+    route([[6,3],[12,3],[12,9]],2);
+    leftHorizontal(12); place('trash',6,12);
+    route([[5,13],[6,13]],1); place('cutter',7,13,1,'vertical');
+    place('trash',7,14);
+    route([[8,13],[8,11],[9,11],[9,10],[11,10]],1);
+    place('extractor',19,2,3); place('belt',18,2,3);
+    place('cutter',17,2,3,'horizontal'); place('trash',16,2);
+    route([[17,1],[16,1]],3); place('cutter',15,1,3,'vertical');
+    place('trash',14,1);
+    route([[15,0],[22,0],[22,14],[17,14]],0);
+  } else if(index===5) {
+    leftHorizontal(2); place('trash',5,3);
+    route([[6,2],[7,2]],1); place('cutter',8,2,1,'vertical');
+    place('trash',8,3); route([[9,2],[12,2],[12,9]],2);
+    leftHorizontal(13); place('trash',6,13);
+    route([[5,14],[11,14],[11,10]],1);
+    place('extractor',19,2,3); place('belt',18,2,3);
+    place('cutter',17,2,3,'horizontal'); place('trash',17,1);
+    route([[16,2],[15,2]],3); place('cutter',14,2,3,'vertical');
+    place('trash',13,2);
+    route([[14,1],[14,0],[22,0],[22,14],[17,14]],0);
+  } else throw Error('unsupported reference challenge');
+  if(index===0 || index===4) {
+    route([[12,11],[12,12],[20,12],[20,8]],1);
+  } else {
+    route([[12,11],[12,12],[16,12],[16,13]],1);
+    place('merger',17,13,1,'join');
+    route([[18,13],[19,13]],1);
+  }
+  return def;
+}
+
+
+function reference(index) {
+ const def=buildSynthesisReference(index);
+ assertSupplyConserved(def.id+' initial');
+ for(let i=0;i<4000&&!G.won;i++){V3Runtime.tick();if(i%10===0)assertSupplyConserved(def.id);}
+ assert.equal(G.delivered,def.need,def.id+' free synthesis factory must finish');
+ assert(G.v3.discardedItems.length>0,'unused material has a player-built trash route');
+ assert(G.v3.discardReasons.every(row=>row.reason==='玩家垃圾桶'),'no automatic target-based discard');
+ assertSupplyConserved(def.id+' complete');
+ if(Number.isFinite(def.budget.belt))assert(G.used.belt<=def.budget.belt);
+ if(Number.isFinite(def.budget.extractor))assert(G.used.extractor<=def.budget.extractor);
+ if(index===0||index===4)assert.equal(def.stars(G),3);
+ console.log(def.id+' free synthesis reference PASS at tick '+G.tickCount+', belts '+G.used.belt+', extractors '+G.used.extractor);
 }
 for(const index of [0,1,4,5]) reference(index);
 console.log('ALL_V3_RUNTIME_TESTS_PASS');

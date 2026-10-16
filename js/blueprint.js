@@ -9,6 +9,7 @@ const Blueprints = {
   cell(c, dx, dy, dir, includeMode = true) {
     const out = { dx, dy, type: c.type, dir };
     if (includeMode && c.machineMode !== undefined) out.machineMode = c.machineMode;
+    if (includeMode && c.ruleId !== undefined) out.ruleId = c.ruleId;
     return out;
   },
 
@@ -84,7 +85,7 @@ const Blueprints = {
     const seen = new Set();
     return cells.map(c => {
       if (!c || typeof c !== 'object' || Array.isArray(c)) throw new Error('蓝图单元无效');
-      if (Object.keys(c).some(k => !['dx', 'dy', 'type', 'dir', 'machineMode'].includes(k))) throw new Error('蓝图单元含不允许的字段');
+      if (Object.keys(c).some(k => !['dx', 'dy', 'type', 'dir', 'machineMode', 'ruleId'].includes(k))) throw new Error('蓝图单元含不允许的字段');
       if (!Number.isInteger(c.dx) || !Number.isInteger(c.dy) || c.dx < 0 || c.dy < 0 || c.dx >= w || c.dy >= h) throw new Error('蓝图坐标无效');
       const key = c.dx + ',' + c.dy;
       if (seen.has(key)) throw new Error('蓝图包含重复坐标');
@@ -92,13 +93,15 @@ const Blueprints = {
       if (!['belt', 'extractor', 'cutter', 'rotator', 'merger', 'trash'].includes(c.type)) throw new Error('蓝图机器类型无效');
       if (!Number.isInteger(c.dir) || c.dir < 0 || c.dir > 3) throw new Error('蓝图方向无效');
       const modes = ruleset === 'petal-v3'
-        ? (c.type === 'cutter' ? ['auto', 'vertical', 'horizontal'] : c.type === 'merger' ? ['auto', 'half', 'final'] : null)
+        ? (c.type === 'cutter' ? ['auto', 'vertical', 'horizontal'] : c.type === 'merger' ? ['auto', 'join', 'stack', 'half', 'final'] : null)
         : ruleset === 'trapezoid-v2'
           ? (c.type === 'cutter' ? ['rough', 'fine'] : c.type === 'merger' ? ['half', 'final'] : null)
           : null;
       if (c.machineMode !== undefined && (!modes || !modes.includes(c.machineMode))) throw new Error('蓝图机器模式无效');
+      if (c.ruleId !== undefined && (ruleset !== 'petal-v3' || c.type !== 'merger' || typeof c.ruleId !== 'string' || !c.ruleId.trim() || c.ruleId.length > 200)) throw new Error('蓝图规则 ID 无效');
       const result = { dx: c.dx, dy: c.dy, type: c.type, dir: c.dir };
       if (c.machineMode !== undefined) result.machineMode = c.machineMode;
+      if (c.ruleId !== undefined) result.ruleId = c.ruleId;
       return result;
     });
   },
@@ -165,7 +168,7 @@ const Blueprints = {
       if (valid && !valid.includes(c.machineMode)) return { x: px + c.dx, y: py + c.dy, reason: (c.type === 'cutter' ? '切割机' : '合并机') + '模式无效' };
     }
     if (G.v3) for (const c of bp.cells) {
-      const valid = c.type === 'cutter' ? ['auto', 'vertical', 'horizontal'] : c.type === 'merger' ? ['auto', 'half', 'final'] : null;
+      const valid = c.type === 'cutter' ? ['auto', 'vertical', 'horizontal'] : c.type === 'merger' ? ['auto', 'join', 'stack', 'half', 'final'] : null;
       if (valid && c.machineMode !== undefined && !valid.includes(c.machineMode)) return { x: px + c.dx, y: py + c.dy, reason: (c.type === 'cutter' ? '切割机' : '混合机') + '模式无效' };
     }
     const need = {};

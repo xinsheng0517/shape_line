@@ -1,9 +1,9 @@
-// build.js — 单文件打包：把 7 个 js 内联进 index.html，产出 dist/shape-line.html（双击即玩 / 任意静态托管）
+// build.js — 单文件打包：把 11 个 js 内联进 index.html，产出 dist/shape-line.html（双击即玩 / 任意静态托管）
 // 用法：node build.js
 const fs = require('fs');
 const path = require('path');
 const root = __dirname;
-const FILES = ['levels.js', 'blueprint.js', 'petal-v3.js', 'challenges.js', 'challenge-v3.js', 'core.js', 'sim.js', 'render.js', 'input.js'];
+const FILES = ['levels.js', 'blueprint.js', 'synthesis-engine.js', 'synthesis-config.js', 'petal-v3.js', 'challenges.js', 'challenge-v3.js', 'core.js', 'sim.js', 'render.js', 'input.js'];
 
 let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 for (const f of FILES) {

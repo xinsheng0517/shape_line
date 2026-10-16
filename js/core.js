@@ -102,7 +102,23 @@ const G = {
   selMode: false,    // 框选态开关（B 键进入）
   sel: null,         // 框选矩形 { x0, y0, x1, y1 }
   save: loadSave(),
+  synthesisConfigError: null,
 };
+
+// Restore only after G exists. Import validation is atomic, so an unavailable
+// extension operator cannot partially replace the active material/rule registry.
+function restoreSynthesisConfig() {
+  G.synthesisConfigError = null;
+  if (typeof PetalV3 === 'undefined' || !Object.prototype.hasOwnProperty.call(G.save, 'synthesisConfig')) return false;
+  try {
+    PetalV3.engine.importConfig(G.save.synthesisConfig);
+    return true;
+  } catch (error) {
+    G.synthesisConfigError = '合成配置恢复失败：' + error.message + '。原存档配置已保留，可在材料与规则编辑器中导出。';
+    return false;
+  }
+}
+restoreSynthesisConfig();
 
 function mkCell(type, x, y, dir) {
   return { type, x, y, dir: dir || 0, item: null, inA: null, inB: null, proc: null, outA: null, outB: null, cd: 1 };
@@ -147,7 +163,7 @@ const Undo = {
   begin() { if (!this.cur) this.cur = []; }, // 拖拽/粘贴开始时成组
   rec(type, x, y, mtype, dir) {
     const a = { type, x, y, mtype, dir };
-    if(G.v2 || G.v3) { const c=cellAt(x,y); if(c&&c.machineMode) a.machineMode=c.machineMode; if(c&&c.locked) a.locked=true; }
+    if(G.v2 || G.v3) { const c=cellAt(x,y); if(c&&c.machineMode) a.machineMode=c.machineMode; if(c&&c.locked) a.locked=true; if(c&&c.ruleId) a.ruleId=c.ruleId; }
     if (this.cur) this.cur.push(a);
     else { this.stack.push([a]); this.trim(); } // 单击 = 单动作组
   },
@@ -164,6 +180,7 @@ const Undo = {
     if (G.grid[a.y][a.x]) return;
     G.grid[a.y][a.x] = mkCell(a.mtype, a.x, a.y, a.dir);
     if(a.machineMode) G.grid[a.y][a.x].machineMode=a.machineMode;
+    if(a.ruleId) G.grid[a.y][a.x].ruleId=a.ruleId;
     if(a.locked) G.grid[a.y][a.x].locked=true;
     if (G.budget[a.mtype] !== Infinity) G.budget[a.mtype]--;
     G.used[a.mtype]++;
@@ -207,7 +224,7 @@ function inTransit() {
   for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++) {
     const c = G.grid[y][x];
     if (!c) continue;
-    if (G.v2 || G.v3) { n+=(c.queueA||[]).length+(c.queueB||[]).length; }
+    if (G.v2 || G.v3) { n+=(c.queueA||[]).length+(c.queueB||[]).length+(c.autoHalves||[]).length; }
     for (const s of SLOTS) if (c[s]) n++;
     if (c.proc) n++;
   }
@@ -370,5 +387,6 @@ window.addEventListener('load', () => {
   Input.init();
   loadLevel(Math.min(G.save.last || 0, G.save.unlocked - 1));
   UI.showMenu(); // 启动先出主菜单，游戏在后台暂停
+  if (G.synthesisConfigError) UI.toast(G.synthesisConfigError, 10);
   requestAnimationFrame(frame);
 });

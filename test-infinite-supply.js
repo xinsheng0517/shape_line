@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const files = ['levels.js', 'petal-v3.js', 'challenges.js', 'challenge-v3.js', 'core.js', 'sim.js'];
+const files = ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'petal-v3.js', 'challenges.js', 'challenge-v3.js', 'core.js', 'sim.js'];
 const context = {console, assert, performance, setTimeout(){}, clearTimeout(){},
   window:{addEventListener(){}}, localStorage:{getItem(){return null;},setItem(){}}};
 vm.createContext(context);

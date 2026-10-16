@@ -33,7 +33,7 @@ const ctx = vm.createContext({
   document: { getElementById: element, createElement: () => element('created-' + Math.random()) },
   Render: { cv: null, resize() {}, drawPreview() {}, draw() {} },
 });
-for (const file of ['levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js']) {
+for (const file of ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, 'js', file), 'utf8'), ctx, { filename: file });
 }
 vm.runInContext('UI.init(); loadChallenge(3);', ctx);

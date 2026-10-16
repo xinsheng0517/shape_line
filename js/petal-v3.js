@@ -1,148 +1,146 @@
 'use strict';
 
-// Pure, trusted rules for the four-petal challenge ruleset. A quarter denotes
-// one of four positions, not necessarily one quarter of the outline's area.
+// Physical-identity facade. Geometry, material registration and combination rules
+// belong to SynthesisEngine; previews deliberately never enter the trust set.
 const PetalV3 = (() => {
+  const Engine = typeof module !== 'undefined' && module.exports
+    ? require('./synthesis-engine.js') : SynthesisEngine;
+  const config = typeof module !== 'undefined' && module.exports
+    ? require('./synthesis-config.js') : SynthesisConfig;
+  const engine = Engine.create(config);
   const KIND = 'petal-v3';
   const SHAPES = Object.freeze(['T', 'C', 'S']);
   const GEOMETRY = Object.freeze(Object.fromEntries(SHAPES.map(shape => [shape,
-    Object.freeze({ vertical: 0.5, horizontal: 0.5, equalAreaRequired: false })])));
-  const ORDER = Object.freeze(['TC', 'CT', 'TS', 'ST', 'CS', 'SC']);
-  const HALF_RECIPES = Object.freeze(Object.fromEntries(ORDER.map(pair => [
-    `H_${pair}`, Object.freeze({ top: pair[0], bottom: pair[1] })
-  ])));
-  const FINAL_RECIPES = Object.freeze(Object.fromEntries(ORDER.flatMap(left =>
-    ORDER.map(right => [`F_${left}_${right}`, Object.freeze({ left: `H_${left}`, right: `H_${right}` })]))));
-  const SLOT_ORDER = Object.freeze(['TL', 'BL', 'TR', 'BR']);
+    Object.freeze({ vertical: .5, horizontal: .5, equalAreaRequired: false })])));
+  const SLOTS = Object.freeze(['TL', 'BL', 'TR', 'BR']);
+  const CLOCKWISE = Object.freeze({ TL: 'TR', TR: 'BR', BR: 'BL', BL: 'TL' });
   const known = new WeakSet();
-
-  function make(stage, units, orientation, recipeId, region, itemId, side = null, quadrant = null, trusted = true) {
+  function worldSlot(slot, orientation) {
+    for (let turns = ((orientation % 360) + 360) % 360 / 90; turns > 0; turns--) slot = CLOCKWISE[slot];
+    return slot;
+  }
+  function layout(units, orientation = 0) {
+    const layers = Array.from({ length: Math.max(...units.map(u => u.layer || 0)) + 1 }, () => ({}));
+    for (const unit of units) layers[unit.layer || 0][worldSlot(unit.quadrant || unit.slot, orientation)] = unit.shapeKind;
+    return Object.freeze(layers.map(layer => Object.freeze(layer)));
+  }
+  function regionFor(units) {
+    const slots = units.map(unit => unit.quadrant);
+    return Object.freeze({
+      x0: slots.some(slot => slot[1] === 'L') ? 0 : .5,
+      x1: slots.some(slot => slot[1] === 'R') ? 1 : .5,
+      y0: slots.some(slot => slot[0] === 'T') ? 0 : .5,
+      y1: slots.some(slot => slot[0] === 'B') ? 1 : .5
+    });
+  }
+  function classify(units, stage) {
+    const slots = new Set(units.map(unit => unit.quadrant));
+    const side = [...slots].every(slot => slot[1] === 'L') ? 'L'
+      : [...slots].every(slot => slot[1] === 'R') ? 'R' : null;
+    const quadrant = slots.size === 1 ? [...slots][0] : null;
+    const singleLayer = units.every(unit => (unit.layer || 0) === 0);
+    if (!stage) stage = singleLayer && units.length === 4 && slots.size === 4 ? 'finished'
+      : singleLayer && units.length === 2 && side ? 'mixed-half' : 'composite';
+    let recipeId = null;
+    if (singleLayer && units.every(unit => SHAPES.includes(unit.shapeKind))) {
+      const at = slot => units.find(unit => unit.quadrant === slot)?.shapeKind;
+      if (stage === 'finished') recipeId = `F_${at('TL')}${at('BL')}_${at('TR')}${at('BR')}`;
+      else if (stage === 'mixed-half') recipeId = `H_${at(`T${side}`)}${at(`B${side}`)}`;
+    }
+    return { stage, side, quadrant, recipeId };
+  }
+  function make(units, orientation, itemId, { stage, trusted = true, ruleId = null } = {}) {
     const frozenUnits = Object.freeze(units.map(unit => Object.freeze({
-      ...unit, resource: unit.shapeKind, slot: unit.quadrant
-    })));
+      ...unit, layer: unit.layer || 0, resource: unit.shapeKind, slot: unit.quadrant
+    })).sort((a, b) => a.layer - b.layer || SLOTS.indexOf(a.quadrant) - SLOTS.indexOf(b.quadrant)));
     const kinds = new Set(frozenUnits.map(unit => unit.shapeKind));
     const sources = new Set(frozenUnits.map(unit => unit.sourceId));
+    const tags = classify(frozenUnits, stage);
     const result = Object.freeze({
-      kind: KIND, ruleset: KIND, stage,
+      kind: KIND, ruleset: KIND, ...tags,
       shapeKind: kinds.size === 1 ? frozenUnits[0].shapeKind : null,
       sourceId: sources.size === 1 ? frozenUnits[0].sourceId : null,
-      units: frozenUnits,
-      unitIds: Object.freeze(frozenUnits.map(unit => unit.id)),
-      orientation, recipeId, side, quadrant,
-      region: Object.freeze({ ...region }), itemId
+      units: frozenUnits, unitIds: Object.freeze(frozenUnits.map(unit => unit.id)),
+      orientation, region: regionFor(frozenUnits), itemId, ruleId,
+      layers: layout(frozenUnits), key: engine.signature({ units: frozenUnits, orientation })
     });
     if (trusted) known.add(result);
     return result;
   }
-  function valid(item, stage) {
-    const count = { raw: 4, 'vertical-half': 2, quarter: 1, 'mixed-half': 2, finished: 4 };
-    return Boolean(item && typeof item === 'object' && known.has(item) &&
-      item.stage === stage && item.kind === KIND && item.units.length === count[stage] &&
-      new Set(item.unitIds).size === item.unitIds.length);
-  }
-  function separate(a, b) {
-    if (!a || !b || !Array.isArray(a.units) || !Array.isArray(b.units)) return false;
-    if (a.orientation !== b.orientation) return false;
-    const units = [...a.units, ...b.units];
-    if (new Set(units.map(unit => unit.id)).size !== units.length) return false;
-    // A source ID names one physical original; it cannot change its base shape.
-    const bySource = new Map();
-    for (const unit of units) {
-      if (bySource.has(unit.sourceId) && bySource.get(unit.sourceId) !== unit.shapeKind) return false;
-      bySource.set(unit.sourceId, unit.shapeKind);
-    }
-    return true;
+  function validItem(item) {
+    return Boolean(item && typeof item === 'object' && known.has(item));
   }
   function raw(shapeKind, id, orientation = 0) {
-    if (!SHAPES.includes(shapeKind) || (typeof id !== 'string' && typeof id !== 'number') ||
+    if (!engine.getMaterial(shapeKind) || (typeof id !== 'string' && typeof id !== 'number') ||
         ![0, 90, 180, 270].includes(orientation)) return null;
     const sourceId = String(id);
     if (!sourceId) return null;
-    return make('raw', SLOT_ORDER.map(quadrant => ({
-      id: `${sourceId}:${quadrant}`, sourceId, shapeKind, quadrant, cutStage: 0
-    })), orientation, null, { x0: 0, x1: 1, y0: 0, y1: 1 }, sourceId);
+    return make(SLOTS.map(quadrant => ({
+      id: `${sourceId}:${quadrant}`, sourceId, shapeKind, quadrant, cutStage: 0, layer: 0
+    })), orientation, sourceId, { stage: 'raw' });
   }
   function cut(item, mode = 'auto') {
-    if (!['auto', 'vertical', 'horizontal'].includes(mode)) return null;
-    if (valid(item, 'raw') && mode !== 'horizontal') {
-      return ['L', 'R'].map(side => {
-        const units = item.units.filter(unit => unit.quadrant[1] === side)
-          .map(unit => ({ ...unit, cutStage: 1 }));
-        const region = side === 'L'
-          ? { x0: 0, x1: 0.5, y0: 0, y1: 1 }
-          : { x0: 0.5, x1: 1, y0: 0, y1: 1 };
-        return make('vertical-half', units, item.orientation, null, region,
-          `${item.itemId}:V:${side}`, side);
-      });
-    }
-    if (valid(item, 'vertical-half') && mode !== 'vertical') {
-      return item.units.map(unit => {
-        const upper = unit.quadrant[0] === 'T';
-        const region = {
-          x0: item.region.x0, x1: item.region.x1,
-          y0: upper ? 0 : 0.5, y1: upper ? 0.5 : 1
-        };
-        return make('quarter', [{ ...unit, cutStage: 2 }], item.orientation, null,
-          region, `${item.itemId}:H:${unit.quadrant}`, item.side, unit.quadrant);
-      });
-    }
-    return null;
+    if (!validItem(item) || !['auto', 'vertical', 'horizontal'].includes(mode)) return null;
+    const columns = new Set(item.units.map(unit => unit.quadrant[1]));
+    const rows = new Set(item.units.map(unit => unit.quadrant[0]));
+    if (mode === 'auto') mode = columns.size === 2 ? 'vertical' : rows.size === 2 ? 'horizontal' : null;
+    if (mode === 'vertical' ? columns.size !== 2 : mode === 'horizontal' ? rows.size !== 2 : true) return null;
+    const vertical = mode === 'vertical';
+    return (vertical ? ['L', 'R'] : ['T', 'B']).map(part => {
+      const units = item.units.filter(unit => unit.quadrant[vertical ? 1 : 0] === part)
+        .map(unit => ({ ...unit, cutStage: (unit.cutStage || 0) + 1 }));
+      const slots = new Set(units.map(unit => unit.quadrant));
+      const singleLayer = units.every(unit => unit.layer === 0);
+      const stage = singleLayer && units.length === 1 ? 'quarter'
+        : singleLayer && units.length === 2 && slots.size === 2
+          ? vertical ? 'vertical-half' : 'horizontal-half' : 'composite';
+      return make(units, item.orientation, `${item.itemId}:${vertical ? 'V' : 'H'}:${part}`, { stage });
+    });
   }
-  function merge(a, b) {
-    const quarters = valid(a, 'quarter') && valid(b, 'quarter');
-    const halves = valid(a, 'mixed-half') && valid(b, 'mixed-half');
-    if ((!quarters && !halves) || !separate(a, b)) return null;
-    if (quarters) {
-      if (a.side !== b.side || a.quadrant[0] === b.quadrant[0]) return null;
-      const [top, bottom] = a.quadrant[0] === 'T' ? [a, b] : [b, a];
-      const recipeId = `H_${top.shapeKind}${bottom.shapeKind}`;
-      if (!Object.hasOwn(HALF_RECIPES, recipeId)) return null;
-      const region = a.side === 'L'
-        ? { x0: 0, x1: 0.5, y0: 0, y1: 1 }
-        : { x0: 0.5, x1: 1, y0: 0, y1: 1 };
-      return make('mixed-half', [...top.units, ...bottom.units], a.orientation,
-        recipeId, region, `${top.itemId}+${bottom.itemId}`, a.side);
-    }
-    if (halves) {
-      if (a.side === b.side) return null;
-      const [left, right] = a.side === 'L' ? [a, b] : [b, a];
-      const recipeId = `F_${left.recipeId.slice(2)}_${right.recipeId.slice(2)}`;
-      if (!Object.hasOwn(FINAL_RECIPES, recipeId)) return null;
-      return make('finished', [...left.units, ...right.units], a.orientation,
-        recipeId, { x0: 0, x1: 1, y0: 0, y1: 1 }, `${left.itemId}+${right.itemId}`);
-    }
-    return null;
+  function mergeMany(items, options = {}) {
+    if (!Array.isArray(items) || items.length < 1 || !items.every(validItem)) return null;
+    const mode = options.mode === 'half' || options.mode === 'final' ? 'join' : options.mode;
+    const result = engine.combine(items, { ...options, ...(mode ? { mode } : {}) });
+    if (!result.ok) return null;
+    return make(result.units, 0, items.map(item => item.itemId).join('+'), { ruleId: result.ruleId || null });
   }
+  function merge(a, b, options) { return mergeMany([a, b], options); }
   function rotate(item) {
-    if (!item || !known.has(item)) return null;
-    return make(item.stage, item.units, (item.orientation + 90) % 360,
-      item.recipeId, item.region, item.itemId, item.side, item.quadrant);
+    return validItem(item) ? make(item.units, (item.orientation + 90) % 360, item.itemId,
+      { stage: item.stage, ruleId: item.ruleId }) : null;
   }
   function preview(recipeId) {
-    const half = HALF_RECIPES[recipeId];
-    const final = FINAL_RECIPES[recipeId];
+    if (typeof recipeId !== 'string') return null;
+    const half = /^H_([TCS])([TCS])$/.exec(recipeId);
+    const final = /^F_([TCS])([TCS])_([TCS])([TCS])$/.exec(recipeId);
     if (!half && !final) return null;
-    const pairs = half ? [[half, 'L']] : [
-      [HALF_RECIPES[final.left], 'L'], [HALF_RECIPES[final.right], 'R']
-    ];
-    const units = pairs.flatMap(([pair, side]) => ['T', 'B'].map((row, i) => ({
-      id: `preview:${recipeId}:${row}${side}`, sourceId: 'preview',
-      shapeKind: i === 0 ? pair.top : pair.bottom,
-      quadrant: `${row}${side}`, cutStage: 2
-    })));
-    return make(half ? 'mixed-half' : 'finished', units, 0, recipeId,
-      half ? { x0: 0, x1: 0.5, y0: 0, y1: 1 } : { x0: 0, x1: 1, y0: 0, y1: 1 },
-      `preview:${recipeId}`, half ? 'L' : null, null, false);
+    const materials = (half || final).slice(1);
+    const slots = half ? SLOTS.slice(0, 2) : SLOTS;
+    return make(slots.map((quadrant, i) => ({
+      id: `preview:${recipeId}:${quadrant}`, sourceId: `preview:${recipeId}:${quadrant}`,
+      shapeKind: materials[i], quadrant, layer: 0, cutStage: 2
+    })), 0, `preview:${recipeId}`, { stage: half ? 'mixed-half' : 'finished', trusted: false });
+  }
+  function targetStructure(target) {
+    return typeof target === 'string' ? preview(target) : target;
+  }
+  function describe(item) {
+    if (!item || !Array.isArray(item.units) || !item.units.length) return null;
+    const key = engine.signature(item);
+    return key ? Object.freeze({ key, layers: layout(item.units, item.orientation || 0) }) : null;
+  }
+  function matches(item, target) {
+    const structure = targetStructure(target);
+    return Boolean(validItem(item) && structure && engine.matches(item, structure));
   }
   function isFinished(item, recipeIds = []) {
-    const allowed = typeof recipeIds === 'string' ? [recipeIds] : recipeIds;
-    return Boolean(valid(item, 'finished') && item.orientation === 0 &&
-      Array.isArray(allowed) && allowed.includes(item.recipeId) &&
-      Object.hasOwn(FINAL_RECIPES, item.recipeId) &&
-      item.units.every((unit, i) => unit.quadrant === SLOT_ORDER[i] && unit.cutStage === 2));
+    const targets = Array.isArray(recipeIds) ? recipeIds : [recipeIds];
+    return validItem(item) && targets.some(target => matches(item, target));
   }
-  return Object.freeze({ raw, cut, merge, rotate, preview, isFinished,
-    SHAPES, GEOMETRY, HALF_RECIPES, FINAL_RECIPES });
+  function derive(target, options) { return engine.derive(targetStructure(target), options); }
+  function registerMaterial(id, descriptor) { return engine.registerMaterial(id, descriptor); }
+  function registerRule(definition) { return engine.registerRule(definition); }
+  return Object.freeze({ raw, cut, merge, mergeMany, rotate, preview, isFinished, validItem,
+    engine, describe, matches, registerMaterial, registerRule, derive, SHAPES, GEOMETRY });
 })();
-
 if (typeof module !== 'undefined' && module.exports) module.exports = PetalV3;

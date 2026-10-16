@@ -1,0 +1,93 @@
+{
+  "checkedAt": "2026-10-14T17:17:56.850Z",
+  "reports": [
+    {
+      "target": "F:\\形状流水线\\shape-line\\index.html",
+      "nary": {
+        "waited": true,
+        "rule": "copper-three",
+        "output": 3
+      },
+      "references": [
+        {
+          "id": "C1",
+          "delivered": 3,
+          "need": 3,
+          "ticks": 78,
+          "belts": 37,
+          "discardOnlyTrash": true
+        },
+        {
+          "id": "C2",
+          "delivered": 6,
+          "need": 6,
+          "ticks": 108,
+          "belts": 63,
+          "discardOnlyTrash": true
+        },
+        {
+          "id": "C5",
+          "delivered": 4,
+          "need": 4,
+          "ticks": 80,
+          "belts": 35,
+          "discardOnlyTrash": true
+        },
+        {
+          "id": "C6",
+          "delivered": 8,
+          "need": 8,
+          "ticks": 124,
+          "belts": 67,
+          "discardOnlyTrash": true
+        }
+      ],
+      "errors": [],
+      "screenshots": "F:\\形状流水线\\shape-line\\docs\\superpowers\\reports\\browser"
+    },
+    {
+      "target": "F:\\形状流水线\\shape-line\\dist\\shape-line.html",
+      "nary": {
+        "waited": true,
+        "rule": "copper-three",
+        "output": 3
+      },
+      "references": [
+        {
+          "id": "C1",
+          "delivered": 3,
+          "need": 3,
+          "ticks": 78,
+          "belts": 37,
+          "discardOnlyTrash": true
+        },
+        {
+          "id": "C2",
+          "delivered": 6,
+          "need": 6,
+          "ticks": 108,
+          "belts": 63,
+          "discardOnlyTrash": true
+        },
+        {
+          "id": "C5",
+          "delivered": 4,
+          "need": 4,
+          "ticks": 80,
+          "belts": 35,
+          "discardOnlyTrash": true
+        },
+        {
+          "id": "C6",
+          "delivered": 8,
+          "need": 8,
+          "ticks": 124,
+          "belts": 67,
+          "discardOnlyTrash": true
+        }
+      ],
+      "errors": [],
+      "screenshots": "F:\\形状流水线\\shape-line\\docs\\superpowers\\reports\\browser"
+    }
+  ]
+}

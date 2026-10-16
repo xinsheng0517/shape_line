@@ -874,7 +874,7 @@ const Render = {
 
   // ===== 形状图标：按象限绘制（0=右上 1=右下 2=左下 3=左上） =====
   shapeIcon(ctx, shape, cx, cy, r) {
-    if (shape && shape.kind === 'petal-v3') {
+    if (shape && (shape.kind === 'petal-v3' || shape.kind === 'synthesis')) {
       this.petalIcon(ctx, shape, cx, cy, r);
       return;
     }
@@ -921,6 +921,30 @@ const Render = {
 
   // 四瓣各沿原料轮廓裁切；1/4 是槽位名称，不要求梯形四瓣等面积。
   petalIcon(ctx, shape, cx, cy, r) {
+    const units = shape.units || [];
+    const byLayer = new Map();
+    let count = Math.max(1, shape.layers && shape.layers.length || 0);
+    for (const unit of units) {
+      const layer = unit.layer || 0; count = Math.max(count, layer + 1);
+      if (!byLayer.has(layer)) byLayer.set(layer, []);
+      byLayer.get(layer).push(unit);
+    }
+    const layerNumbers = [...byLayer.keys()].sort((a,b) => a-b);
+    ctx.save(); ctx.translate(cx,cy);
+    const spread = count > 1 ? Math.min(r * 0.32, (count - 1) * r * 0.12) : 0;
+    for (const layer of layerNumbers) {
+      const offset = count > 1 ? layer / (count - 1) * spread : 0;
+      this.petalLayerIcon(ctx, {...shape,units:byLayer.get(layer)}, offset, -offset, r - spread / 2);
+    }
+    if (count > 1) {
+      ctx.font = '700 ' + Math.max(8,r * 0.45) + 'px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+      ctx.strokeStyle = '#08101b'; ctx.lineWidth = 3; ctx.strokeText(count + '层',r,r * 0.5);
+      ctx.fillStyle = '#fff1bf'; ctx.fillText(count + '层',r,r * 0.5);
+    }
+    ctx.restore();
+  },
+
+  petalLayerIcon(ctx, shape, cx, cy, r) {
     const petals = {
       TL: [[0, 0], [-0.8, 0], [-0.6, -1], [0, -1]],
       TR: [[0, 0], [0, -1], [0.6, -1], [0.8, 0]],
@@ -941,14 +965,29 @@ const Render = {
     for (const unit of shape.units || []) {
       const slot = unit.slot || unit.quadrant;
       const type = unit.resource || unit.shapeKind || shape.shapeKind;
+      const descriptor = typeof PetalV3 !== 'undefined' && PetalV3.engine && PetalV3.engine.getMaterial(type);
+      const outline = descriptor && descriptor.outline || ({T:'trapezoid',R:'trapezoid',C:'circle',S:'star'})[type] || 'diamond';
       if (!petals[slot]) continue;
+      ctx.save();
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      if (type === 'C') ctx.arc(0, 0, r, arc[slot][0], arc[slot][1]);
-      else for (const [px, py] of (type === 'S' ? star : petals)[slot].slice(1))
-        ctx.lineTo(px * r, py * r);
+      if (outline === 'circle') ctx.arc(0, 0, r, arc[slot][0], arc[slot][1]);
+      else if (outline === 'trapezoid' || outline === 'star') {
+        for (const [px, py] of (outline === 'star' ? star : petals)[slot].slice(1)) ctx.lineTo(px * r, py * r);
+      } else {
+        const sx = slot.endsWith('L') ? -1 : 1, sy = slot.startsWith('T') ? -1 : 1;
+        const points = Array.isArray(outline) ? outline : outline && outline.points || descriptor && descriptor.points;
+        if (Array.isArray(points) && points.length > 2 && points.every(point => Array.isArray(point) && point.length === 2 && point.every(Number.isFinite))) {
+          ctx.rect(sx < 0 ? -r : 0, sy < 0 ? -r : 0, r, r); ctx.clip(); ctx.beginPath();
+          points.forEach(([px,py],index) => index ? ctx.lineTo(px*r,py*r) : ctx.moveTo(px*r,py*r));
+        } else if (outline === 'square') {
+          ctx.lineTo(sx*r,0);ctx.lineTo(sx*r,sy*r);ctx.lineTo(0,sy*r);
+        } else if (outline === 'triangle') {
+          ctx.lineTo(sx*r,sy*r);ctx.lineTo(0,sy*r);
+        } else { ctx.lineTo(sx*r,0);ctx.lineTo(0,sy*r); }
+      }
       ctx.closePath();
-      ctx.fillStyle = SHAPE_COLOR[type] || '#8ab7dc';
+      ctx.fillStyle = descriptor && descriptor.color || SHAPE_COLOR[type] || '#8ab7dc';
       ctx.fill();
       ctx.strokeStyle = 'rgba(8,13,22,.65)';
       ctx.lineWidth = Math.max(0.8, r * 0.06);
@@ -976,6 +1015,7 @@ const Render = {
         }
         ctx.restore();
       }
+      ctx.restore();
     }
     ctx.restore();
   },

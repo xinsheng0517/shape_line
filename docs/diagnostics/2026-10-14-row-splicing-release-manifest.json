@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-10-14T18:22:12.364Z",
+  "files": [
+    {
+      "path": "F:/形状流水线/shape-line/dist/shape-line.html",
+      "bytes": 250314,
+      "sha256": "07a75f948fa8cb2e631e130daaf7fef4068ffd8579378d7646d3fb5af9fd0ae7"
+    },
+    {
+      "path": "F:/形状流水线/形状流水线/形状流水线/dist/shape-line.html",
+      "bytes": 250314,
+      "sha256": "07a75f948fa8cb2e631e130daaf7fef4068ffd8579378d7646d3fb5af9fd0ae7"
+    },
+    {
+      "path": "F:/形状流水线/形状流水线/形状流水线-单个可执行文件.html",
+      "bytes": 250314,
+      "sha256": "07a75f948fa8cb2e631e130daaf7fef4068ffd8579378d7646d3fb5af9fd0ae7"
+    }
+  ],
+  "zip": {
+    "path": "F:/形状流水线/形状流水线/形状流水线-单个可执行文件.zip",
+    "bytes": 76145,
+    "sha256": "d7b6c61c400e871c220d3ec401b2d69bac8c31722d39617f7677b5cf3488770c",
+    "contentVerified": true,
+    "htmlSha256": "07a75f948fa8cb2e631e130daaf7fef4068ffd8579378d7646d3fb5af9fd0ae7"
+  },
+  "bundleVmTest": "ALL_ROW_SPLICING_PASS",
+  "tests": 26,
+  "syntaxChecks": 16
+}

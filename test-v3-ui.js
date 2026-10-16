@@ -2,7 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const assert = require('assert');
-const files = ['levels.js', 'blueprint.js', 'petal-v3.js', 'challenges.js', 'core.js', 'sim.js', 'input.js'];
+const files = ['levels.js', 'blueprint.js', 'synthesis-engine.js', 'synthesis-config.js', 'petal-v3.js', 'challenges.js', 'core.js', 'sim.js', 'input.js'];
 const elements = new Map();
 const el = () => ({style:{},classList:{add(){},remove(){},toggle(){},contains(){return false;}},
   appendChild(){},addEventListener(){},querySelector:el,textContent:'',innerHTML:''});

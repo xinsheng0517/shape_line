@@ -2,7 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const assert = require('assert');
-const files = ['levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js'];
+const files = ['synthesis-engine.js', 'synthesis-config.js', 'levels.js', 'blueprint.js', 'challenges.js', 'core.js', 'sim.js', 'input.js'];
 const downloads = [];
 const store = new Map();
 const el = () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
